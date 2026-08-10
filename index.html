@@ -72,6 +72,11 @@
   .ov-dept-toggle{ width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left; color: var(--ink); }
   .ov-top-issue{ font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
   .ov-dept-detail{ margin-top: 8px; padding-left: 4px; }
+  .issue-row{ padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .issue-row:last-child{ border-bottom: none; }
+  .issue-summary{ display:flex; align-items:center; gap: 8px; }
+  .issue-toggle{ flex:1; display:flex; align-items:center; gap: 8px; background:none; border:none; padding:0; cursor:pointer; text-align:left; color: var(--ink); }
+  .issue-detail{ margin-top: 6px; font-size: 12px; color: var(--ink-soft); padding-left: 2px; }
   .type-row{ display:flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); padding: 5px 0; }
   .leader{ flex:1; border-bottom: 2px dotted var(--line); height:0; margin: 0 8px; }
   .line-amount{ font-family:'JetBrains Mono', monospace; font-size: 14px; font-weight:700; white-space:nowrap; }
@@ -213,6 +218,7 @@ let overviewPeriod = 'month';
 let overviewMonthCursor = { y: today.getFullYear(), m: today.getMonth() };
 let overviewYearCursor = today.getFullYear();
 let expandedDept = null;
+let expandedIssueId = null;
 
 function todayISO(){
   const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
@@ -347,19 +353,26 @@ function renderStandardDept(dept){
     .sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
   const monthCount = deptIssues.filter(i => i.date.startsWith(currentYM())).length;
   const options = dept.issues.map(label => `<option value="${escapeHTML(label)}">${escapeHTML(label)}</option>`).join('');
-  const listHTML = deptIssues.length ? deptIssues.map(i => `
-    <div class="line-item">
-      <span class="line-label mono" style="font-size:12px;color:var(--ink-soft);">${formatShortDate(i.date)}</span>
-      ${i.projectNumber ? `<span class="line-label mono">#${escapeHTML(i.projectNumber)}</span>` : ''}
-      <span class="line-label">${escapeHTML(i.category)}${i.note ? `<span class="line-note"> — ${escapeHTML(i.note)}</span>` : ''}</span>
-      <button class="del-btn" data-del-issue="${i.id}">&times;</button>
-    </div>`).join('') : `<div class="empty-state">No issues logged yet for ${escapeHTML(dept.label)}.</div>`;
+  const listHTML = deptIssues.length ? deptIssues.map(i => {
+    const expanded = expandedIssueId === i.id;
+    return `
+    <div class="issue-row">
+      <div class="issue-summary">
+        <button class="issue-toggle" data-toggle-issue="${i.id}">
+          ${i.projectNumber ? `<span class="line-label mono">#${escapeHTML(i.projectNumber)}</span>` : ''}
+          <span class="line-label">${escapeHTML(i.category)}</span>
+        </button>
+        <button class="del-btn" data-del-issue="${i.id}">&times;</button>
+      </div>
+      ${expanded ? `<div class="issue-detail">${formatShortDate(i.date)}${i.note ? ` — ${escapeHTML(i.note)}` : ' — no additional notes'}</div>` : ''}
+    </div>`;
+  }).join('') : `<div class="empty-state">No issues logged yet for ${escapeHTML(dept.label)}.</div>`;
 
   return `
     <div class="card">
       <div class="dept-title">${escapeHTML(dept.label)}</div>
       <div class="muted">${monthCount} logged this month</div>
-      <label class="field-label" for="issueProjectNum">Project # <span style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <label class="field-label" for="issueProjectNum">Project #</label>
       <input type="text" id="issueProjectNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
       <label class="field-label" for="issueCategory">Issue type</label>
       <select id="issueCategory">${options}</select>
@@ -369,16 +382,22 @@ function renderStandardDept(dept){
       <input type="text" id="issueNote" placeholder="Any additional detail">
       <button class="add-btn" id="logIssueBtn">+ Log issue</button>
     </div>
-    <div class="section-title">History</div>
+    <div class="section-title">History <span style="text-transform:none;letter-spacing:0;">(tap an entry for details)</span></div>
     <div class="card">${listHTML}</div>
   `;
 }
 function attachStandardHandlers(dept){
   document.getElementById('logIssueBtn').onclick = async () => {
-    const projectNumber = document.getElementById('issueProjectNum').value.trim();
+    const projectEl = document.getElementById('issueProjectNum');
+    const projectNumber = projectEl.value.trim();
     const category = document.getElementById('issueCategory').value;
     const date = document.getElementById('issueDate').value || todayISO();
     const note = document.getElementById('issueNote').value.trim();
+    if (!projectNumber) {
+      projectEl.style.borderColor = 'var(--warn)';
+      showToast('Enter a project number');
+      return;
+    }
     const entry = { id: 'i' + Date.now() + Math.random().toString(36).slice(2,7), department: dept.key, projectNumber, category, date, note, createdAt: Date.now() };
     issues.push(entry); cacheLocal(); render(); showToast('Issue logged');
     if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
@@ -388,6 +407,13 @@ function attachStandardHandlers(dept){
       setSyncStatus('synced');
     } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
   };
+  document.querySelectorAll('[data-toggle-issue]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-toggle-issue');
+      expandedIssueId = expandedIssueId === id ? null : id;
+      render();
+    };
+  });
   document.querySelectorAll('[data-del-issue]').forEach(btn => {
     btn.onclick = () => {
       const id = btn.getAttribute('data-del-issue');

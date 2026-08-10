@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Shop Floor Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #E7E9E7;
+    --card: #FFFFFF;
+    --ink: #232A2E;
+    --ink-soft: #64707A;
+    --accent: #C8791E;
+    --warn: #B0413A;
+    --line: #D3D7D6;
+    --white: #FFFFFF;
+    font-size: 16px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--bg); color: var(--ink); font-family: 'Work Sans', sans-serif;
+    -webkit-font-smoothing: antialiased; min-height: 100vh; display:flex; justify-content:center;
+  }
+  .mono{ font-family: 'JetBrains Mono', monospace; }
+  button{ font-family: inherit; }
+  .phone{ width: 100%; max-width: 460px; min-height: 100vh; background: var(--bg); display:flex; flex-direction:column; position:relative; }
+  .banner{ background: var(--ink); color: var(--white); font-size: 12px; line-height: 1.5; padding: 10px 16px; display: none; }
+  .banner.show{ display:block; }
+  .banner.banner-warn{ background: var(--warn); }
+  .sticky-top{ position: sticky; top:0; z-index: 5; background: var(--bg); padding-top: env(safe-area-inset-top); }
+  .masthead{ background: var(--card); margin: 14px 14px 0 14px; border-radius: 12px 12px 0 0; padding: 16px 18px 14px 18px; border-top: 4px solid var(--accent); }
+  .masthead-top{ display:flex; align-items:center; justify-content:space-between; }
+  .brand{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 13px; letter-spacing: 1.5px; color: var(--ink); }
+  .text-btn{ background:none; border:none; color: var(--ink-soft); font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; padding: 6px 4px; cursor:pointer; border-bottom: 1px dotted var(--ink-soft); }
+  .text-btn:hover{ color: var(--warn); border-color: var(--warn); }
+  .sync-row{ display:flex; align-items:center; gap: 6px; margin-top: 10px; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ink-soft); }
+  .sync-dot{ width: 7px; height:7px; border-radius:50%; background: var(--ink-soft); flex-shrink:0; }
+  .sync-dot.synced{ background: #4F7A4A; }
+  .sync-dot.offline{ background: var(--warn); }
+  .refresh-btn{ background:none; border:none; color: var(--ink-soft); font-size: 13px; cursor:pointer; margin-left:auto; padding:2px 4px; }
+  .headline{ margin-top: 12px; }
+  .headline-num{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 30px; line-height:1.1; }
+  .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .dept-nav{ display:flex; flex-wrap: wrap; gap: 8px; background: var(--card); margin: 0 14px; border-radius: 0 0 12px 12px; padding: 12px 14px 12px 14px; }
+  .dept-chip.pinned{ flex-shrink:0; border-color: var(--ink); }
+  .nav-row{ display:flex; align-items:center; justify-content: space-between; margin-bottom: 10px; }
+  .nav-btn{ background: none; border: none; font-size: 18px; color: var(--ink); cursor:pointer; padding: 6px 12px; min-width: 40px; min-height: 40px; }
+  .nav-title{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 14px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .period-toggle{ display:flex; gap: 6px; background: var(--bg); border-radius: 8px; padding: 4px; }
+  .toggle-btn{ flex:1; border:none; background:transparent; color: var(--ink-soft); font-size: 12px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; padding: 8px 0; border-radius: 6px; cursor:pointer; }
+  .toggle-btn.active{ background: var(--accent); color: var(--white); }
+  .bar-track{ position: relative; height: 8px; background: var(--line); border-radius: 4px; margin-top: 4px; }
+  .bar-fill{ position:absolute; left:0; top:0; height:100%; border-radius: 4px; }
+  .bar-row-top{ display:flex; justify-content: space-between; font-size: 13px; }
+  .ov-dept-row{ padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .ov-dept-row:last-child{ border-bottom: none; }
+  .ov-dept-toggle{ width:100%; background:none; border:none; padding:0; cursor:pointer; text-align:left; color: var(--ink); }
+  .ov-top-issue{ font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
+  .ov-dept-detail{ margin-top: 8px; padding-left: 4px; }
+  .type-row{ display:flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); padding: 5px 0; }
+  .leader{ flex:1; border-bottom: 2px dotted var(--line); height:0; margin: 0 8px; }
+  .line-amount{ font-family:'JetBrains Mono', monospace; font-size: 14px; font-weight:700; white-space:nowrap; }
+  .dept-chip{ flex-shrink:0; display:flex; align-items:center; gap:6px; padding:9px 14px; border-radius: 18px; border: 1.5px solid var(--line); background: var(--white); color: var(--ink-soft); font-size: 13px; font-weight: 600; white-space: nowrap; cursor:pointer; }
+  .dept-chip.active{ background: var(--accent); border-color: var(--accent); color: var(--white); }
+  .chip-badge{ background: rgba(0,0,0,0.12); border-radius: 10px; padding: 1px 6px; font-size: 11px; font-family:'JetBrains Mono', monospace; }
+  .dept-chip.active .chip-badge{ background: rgba(255,255,255,0.28); }
+  .content{ flex:1; padding: 16px 14px 40px 14px; }
+  .card{ background: var(--card); border-radius: 12px; padding: 16px 16px 18px 16px; margin-bottom: 12px; }
+  .dept-title{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 15px; letter-spacing: 0.5px; margin-bottom: 4px; }
+  label.field-label{ display:block; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; margin-top: 14px; }
+  label.field-label:first-child{ margin-top:0; }
+  input[type="text"], input[type="date"], select{
+    width:100%; border: none; border-bottom: 2px solid var(--line); background: transparent;
+    font-family: 'Work Sans', sans-serif; font-size: 16px; padding: 9px 2px; color: var(--ink); min-height: 44px;
+  }
+  select{ appearance:none; -webkit-appearance:none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%), linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+    background-position: calc(100% - 16px) center, calc(100% - 10px) center; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat;
+  }
+  input:focus, select:focus{ outline: none; border-color: var(--accent); }
+  input::placeholder{ color: var(--ink-soft); opacity: 0.6; }
+  .muted{ color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+  .add-btn{
+    width:100%; margin-top: 20px; background: var(--accent); color: var(--white); border: none; border-radius: 9px;
+    padding: 14px 0; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; cursor: pointer; min-height: 46px;
+  }
+  .add-btn:active{ opacity: 0.85; }
+  .section-title{ font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 8px 2px; }
+  .line-item{ display:flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); gap: 8px; flex-wrap: wrap; }
+  .line-item:last-child{ border-bottom: none; }
+  .line-label{ font-size: 14px; color: var(--ink); }
+  .line-note{ font-size: 12px; color: var(--ink-soft); }
+  .del-btn{ background:none; border:none; color: var(--ink-soft); font-size: 16px; cursor:pointer; padding: 4px 2px 4px 6px; line-height:1; margin-left:auto; }
+  .del-btn:hover{ color: var(--warn); }
+  .empty-state{ text-align:center; padding: 22px 10px; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+  .modal-overlay{ position: fixed; inset: 0; background: rgba(35,42,46,0.5); display:flex; align-items:center; justify-content:center; z-index: 50; padding: 24px; }
+  .modal-box{ background: var(--white); border-radius: 12px; padding: 22px 20px; max-width: 340px; width: 100%; }
+  .modal-title{ font-weight: 700; font-size: 16px; margin-bottom: 8px; }
+  .modal-text{ font-size: 13px; color: var(--ink-soft); line-height:1.5; margin-bottom: 18px; }
+  .modal-actions{ display:flex; gap: 10px; }
+  .modal-actions button{ flex:1; border:none; border-radius: 8px; padding: 12px 0; font-size: 13px; font-weight:700; cursor:pointer; min-height: 44px; }
+  .modal-cancel{ background: var(--bg); color: var(--ink); }
+  .modal-confirm{ background: var(--warn); color: var(--white); }
+  .toast{
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--white);
+    padding: 10px 18px; border-radius: 20px; font-size: 13px; z-index: 60; opacity: 0; transition: opacity 0.25s ease;
+    pointer-events:none; max-width: 85%; text-align:center;
+  }
+  .toast.show{ opacity: 1; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="banner" id="banner"></div>
+  <div class="sticky-top">
+    <div class="masthead">
+      <div class="masthead-top">
+        <span class="brand">SHOP FLOOR LOG</span>
+        <div style="display:flex; gap:14px; align-items:center;">
+          <button class="text-btn" id="backupBtn">Backup</button>
+          <button class="text-btn" id="resetBtn">Clear data</button>
+        </div>
+      </div>
+      <div class="sync-row">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncText">Connecting&hellip;</span>
+        <button class="refresh-btn" id="refreshBtn" title="Refresh now">&#8635; Refresh</button>
+      </div>
+      <div class="headline">
+        <div class="headline-num mono" id="headlineNum">0</div>
+        <div class="headline-sub" id="headlineSub">issues logged this month</div>
+      </div>
+    </div>
+    <div class="dept-nav" id="deptNav"></div>
+  </div>
+  <main class="content" id="content"></main>
+</div>
+<div id="modalRoot"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   SETUP — read this before using the app
+   ------------------------------------------------------------
+   Use a SEPARATE Firebase project from any other app you've
+   built (e.g. a household budget tracker). The open rules below
+   make the WHOLE database visible to anyone with the URL, so
+   keeping this on its own project keeps it from mixing with
+   anything else.
+
+   1. Go to https://console.firebase.google.com and sign in.
+   2. Click "Add project" (e.g. "shop-floor-log").
+   3. Build -> Realtime Database -> Create Database -> test mode.
+   4. Rules tab, set:
+        { "rules": { ".read": true, ".write": true } }
+      Publish.
+   5. Data tab -> copy the URL at the top
+      (looks like https://shop-floor-log-xxxxx-default-rtdb.firebaseio.com)
+   6. Paste it below as FIREBASE_URL, replacing the placeholder.
+   7. Host this file the same way as before (e.g. GitHub Pages) so
+      both you and your supervisor open it from a real web address.
+   ============================================================ */
+const FIREBASE_URL = "https://supervisor-app-4c0b3-default-rtdb.firebaseio.com";
+
+// ---- departments ----
+const DEPARTMENTS = [
+  {key:'milling', label:'Milling', short:'Milling', type:'standard',
+    issues:['Wrong Species','Not hitting width spec after SLR']},
+  {key:'glueup', label:'Glue Up / Wide Belt', short:'Glue/Widebelt', type:'standard',
+    issues:['Open Glue Seam','Not able to hit thickness','Under Width after Glue']},
+  {key:'cnc', label:'CNC', short:'CNC', type:'standard',
+    issues:['Failed Table','Table Requires fixing']},
+  {key:'sanding', label:'Sanding', short:'Sanding', type:'standard',
+    issues:['Table failed','Table needed repair']},
+  {key:'fullcustom', label:'Full Custom', short:'Full Custom', type:'standard',
+    issues:['Item had to be redone','Item had to be reworked']},
+  {key:'finish', label:'Finish Department', short:'Finish', type:'standard',
+    issues:["Didn't meet color spec",'Junk in finish','Sheen Issue']},
+  {key:'metal', label:'Metal Department', short:'Metal', type:'standard',
+    issues:['Item had to be scrapped','Item had to be reworked']},
+  {key:'arrow', label:'ARROW — Powdercoating Tracking', short:'Arrow', type:'arrow'},
+  {key:'qc', label:'QC', short:'QC', type:'qc'},
+  {key:'delivery', label:'Delivery', short:'Delivery', type:'standard',
+    issues:['Product damaged by PD','Product Damaged by customer','Missing Product on site','No site contact']},
+];
+const STORAGE_KEY = 'shop_floor_log_cache_v1';
+const POLL_MS = 15000;
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+let issues = [];
+let arrowJobs = [];
+let qcEntries = [];
+let activeDept = DEPARTMENTS[0].key;
+let qcSearch = '';
+const today = new Date();
+let overviewPeriod = 'month';
+let overviewMonthCursor = { y: today.getFullYear(), m: today.getMonth() };
+let overviewYearCursor = today.getFullYear();
+let expandedDept = null;
+
+function todayISO(){
+  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function currentYM(){ return `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`; }
+function parseISO(iso){ const [y,m,d] = iso.split('-').map(Number); return new Date(y, m-1, d); }
+function formatShortDate(iso){ const d = parseISO(iso); return `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`; }
+function daysBetween(startISO, endISO){ return Math.round((parseISO(endISO) - parseISO(startISO)) / 86400000); }
+function escapeHTML(s){ const div = document.createElement('div'); div.textContent = s == null ? '' : s; return div.innerHTML; }
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function isConfigured(){ return FIREBASE_URL && FIREBASE_URL.indexOf('PASTE_YOUR') === -1 && FIREBASE_URL.indexOf('http') === 0; }
+function objToArr(obj){ if (!obj) return []; return Object.entries(obj).map(([id, v]) => ({ id, ...v })); }
+
+// ---------- local cache (offline fallback only) ----------
+function cacheLocal(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify({issues, arrowJobs, qcEntries})); } catch(e){} }
+function loadLocalCache(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    issues = d.issues || []; arrowJobs = d.arrowJobs || []; qcEntries = d.qcEntries || [];
+  } catch(e){}
+}
+
+// ---------- cloud sync (Firebase Realtime Database REST) ----------
+function setSyncStatus(status){
+  const dot = document.getElementById('syncDot');
+  const text = document.getElementById('syncText');
+  const banner = document.getElementById('banner');
+  dot.classList.remove('synced','offline');
+  if (status === 'synced'){
+    dot.classList.add('synced'); text.textContent = 'Synced with shared log';
+    banner.classList.remove('show','banner-warn');
+  } else if (status === 'syncing'){
+    text.textContent = 'Syncing…';
+  } else if (status === 'offline'){
+    dot.classList.add('offline'); text.textContent = "Can't reach shared log";
+    banner.textContent = "Can't reach the shared log right now. New entries are saved on this device and will sync once you're back online.";
+    banner.classList.add('show','banner-warn');
+  } else if (status === 'unconfigured'){
+    text.textContent = 'Not connected yet';
+    banner.textContent = "This copy isn't linked to a shared log yet. Open the file and paste your Firebase database URL where it says FIREBASE_URL (see the setup notes at the top of the code).";
+    banner.classList.add('show'); banner.classList.remove('banner-warn');
+  } else {
+    text.textContent = 'Connecting…';
+  }
+}
+async function remoteFetchPath(path){
+  const res = await fetch(`${FIREBASE_URL}/${path}.json`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('fetch failed');
+  return await res.json();
+}
+async function remotePatchPath(path, body){
+  const res = await fetch(`${FIREBASE_URL}/${path}.json`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error('patch failed');
+}
+async function remoteReplacePath(path, body){
+  const res = await fetch(`${FIREBASE_URL}/${path}.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error('put failed');
+}
+async function syncPull(showFailToast){
+  if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+  try {
+    setSyncStatus('syncing');
+    const [i, a, q] = await Promise.all([remoteFetchPath('issues'), remoteFetchPath('arrowJobs'), remoteFetchPath('qcEntries')]);
+    const newIssues = objToArr(i), newArrow = objToArr(a), newQc = objToArr(q);
+    const changed = JSON.stringify({issues, arrowJobs, qcEntries}) !== JSON.stringify({issues:newIssues, arrowJobs:newArrow, qcEntries:newQc});
+    issues = newIssues; arrowJobs = newArrow; qcEntries = newQc;
+    cacheLocal();
+    setSyncStatus('synced');
+    if (changed) render();
+  } catch (e) {
+    setSyncStatus('offline');
+    if (showFailToast) showToast("Couldn't reach the shared log — showing last synced copy");
+  }
+}
+
+// ---------- modal ----------
+function openModal({title, text, confirmLabel, onConfirm}){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <div class="modal-title">${title}</div>
+        <div class="modal-text">${text}</div>
+        <div class="modal-actions">
+          <button class="modal-cancel" id="modalCancel">Cancel</button>
+          <button class="modal-confirm" id="modalConfirm">${confirmLabel}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalCancel').onclick = () => root.innerHTML = '';
+  document.getElementById('modalOverlay').onclick = (e) => { if (e.target.id === 'modalOverlay') root.innerHTML = ''; };
+  document.getElementById('modalConfirm').onclick = () => { root.innerHTML = ''; onConfirm(); };
+}
+
+// ---------- chip bar + masthead ----------
+function chipBadge(dept){
+  if (dept.type === 'standard') return issues.filter(i => i.department === dept.key && i.date.startsWith(currentYM())).length;
+  if (dept.type === 'arrow') return arrowJobs.filter(j => !j.returnedDate).length;
+  if (dept.type === 'qc') return qcEntries.filter(q => q.date.startsWith(currentYM())).length;
+  return 0;
+}
+function renderChips(){
+  const wrap = document.getElementById('deptNav');
+  const overviewHTML = `<button class="dept-chip pinned${activeDept==='overview'?' active':''}" data-dept="overview">Overview</button>`;
+  const deptHTML = DEPARTMENTS.map(d => {
+    const badge = chipBadge(d);
+    return `<button class="dept-chip${d.key===activeDept?' active':''}" data-dept="${d.key}">${escapeHTML(d.short)}${badge>0?`<span class="chip-badge">${badge}</span>`:''}</button>`;
+  }).join('');
+  wrap.innerHTML = overviewHTML + deptHTML;
+  wrap.querySelectorAll('[data-dept]').forEach(btn => {
+    btn.onclick = () => { activeDept = btn.getAttribute('data-dept'); render(); };
+  });
+}
+function renderMasthead(){
+  const ym = currentYM();
+  const count = issues.filter(i => i.date.startsWith(ym)).length;
+  document.getElementById('headlineNum').textContent = String(count);
+  document.getElementById('headlineSub').textContent = `issues logged this month, across ${DEPARTMENTS.filter(d=>d.type==='standard').length} departments`;
+}
+
+// ---------- STANDARD department (issue log) ----------
+function renderStandardDept(dept){
+  const deptIssues = issues.filter(i => i.department === dept.key)
+    .sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
+  const monthCount = deptIssues.filter(i => i.date.startsWith(currentYM())).length;
+  const options = dept.issues.map(label => `<option value="${escapeHTML(label)}">${escapeHTML(label)}</option>`).join('');
+  const listHTML = deptIssues.length ? deptIssues.map(i => `
+    <div class="line-item">
+      <span class="line-label mono" style="font-size:12px;color:var(--ink-soft);">${formatShortDate(i.date)}</span>
+      ${i.projectNumber ? `<span class="line-label mono">#${escapeHTML(i.projectNumber)}</span>` : ''}
+      <span class="line-label">${escapeHTML(i.category)}${i.note ? `<span class="line-note"> — ${escapeHTML(i.note)}</span>` : ''}</span>
+      <button class="del-btn" data-del-issue="${i.id}">&times;</button>
+    </div>`).join('') : `<div class="empty-state">No issues logged yet for ${escapeHTML(dept.label)}.</div>`;
+
+  return `
+    <div class="card">
+      <div class="dept-title">${escapeHTML(dept.label)}</div>
+      <div class="muted">${monthCount} logged this month</div>
+      <label class="field-label" for="issueProjectNum">Project # <span style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="issueProjectNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <label class="field-label" for="issueCategory">Issue type</label>
+      <select id="issueCategory">${options}</select>
+      <label class="field-label" for="issueDate">Date</label>
+      <input type="date" id="issueDate" value="${todayISO()}">
+      <label class="field-label" for="issueNote">Notes <span style="text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="issueNote" placeholder="Any additional detail">
+      <button class="add-btn" id="logIssueBtn">+ Log issue</button>
+    </div>
+    <div class="section-title">History</div>
+    <div class="card">${listHTML}</div>
+  `;
+}
+function attachStandardHandlers(dept){
+  document.getElementById('logIssueBtn').onclick = async () => {
+    const projectNumber = document.getElementById('issueProjectNum').value.trim();
+    const category = document.getElementById('issueCategory').value;
+    const date = document.getElementById('issueDate').value || todayISO();
+    const note = document.getElementById('issueNote').value.trim();
+    const entry = { id: 'i' + Date.now() + Math.random().toString(36).slice(2,7), department: dept.key, projectNumber, category, date, note, createdAt: Date.now() };
+    issues.push(entry); cacheLocal(); render(); showToast('Issue logged');
+    if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+    try {
+      setSyncStatus('syncing');
+      await remotePatchPath('issues', { [entry.id]: { department: entry.department, projectNumber: entry.projectNumber, category: entry.category, date: entry.date, note: entry.note, createdAt: entry.createdAt } });
+      setSyncStatus('synced');
+    } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
+  };
+  document.querySelectorAll('[data-del-issue]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-del-issue');
+      openModal({
+        title: 'Remove this entry?',
+        text: "This removes it from the shared log for everyone. This can't be undone.",
+        confirmLabel: 'Remove',
+        onConfirm: async () => {
+          issues = issues.filter(i => i.id !== id); cacheLocal(); render(); showToast('Entry removed');
+          if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+          try { await remotePatchPath('issues', { [id]: null }); setSyncStatus('synced'); }
+          catch (e) { setSyncStatus('offline'); showToast("Removed here — will sync once you're back online"); }
+        }
+      });
+    };
+  });
+}
+
+// ---------- ARROW (in/out tracking) ----------
+function renderArrow(){
+  const active = arrowJobs.filter(j => !j.returnedDate)
+    .sort((a,b) => (a.sentDate < b.sentDate ? 1 : a.sentDate > b.sentDate ? -1 : b.createdAt - a.createdAt));
+  const returned = arrowJobs.filter(j => j.returnedDate)
+    .sort((a,b) => (a.returnedDate < b.returnedDate ? 1 : -1));
+
+  const activeHTML = active.length ? active.map(j => {
+    const days = daysBetween(j.sentDate, todayISO());
+    return `
+    <div class="line-item">
+      <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — sent ${formatShortDate(j.sentDate)} (${days}d)</span></span>
+      <button class="add-btn" style="width:auto; padding:8px 14px; margin:0; font-size:11px;" data-return="${j.id}">Mark Returned</button>
+    </div>`;
+  }).join('') : `<div class="empty-state">Nothing currently at Arrow.</div>`;
+
+  const returnedHTML = returned.length ? returned.slice(0, 50).map(j => {
+    const days = daysBetween(j.sentDate, j.returnedDate);
+    return `
+    <div class="line-item">
+      <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — ${formatShortDate(j.sentDate)} to ${formatShortDate(j.returnedDate)} (${days}d)</span></span>
+      <button class="del-btn" data-del-arrow="${j.id}">&times;</button>
+    </div>`;
+  }).join('') : `<div class="empty-state">No returned jobs yet.</div>`;
+
+  return `
+    <div class="card">
+      <div class="dept-title">ARROW — Powdercoating Tracking</div>
+      <label class="field-label" for="arrowJobNum">Project #</label>
+      <input type="text" id="arrowJobNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <label class="field-label" for="arrowDesc">Description</label>
+      <input type="text" id="arrowDesc" placeholder="e.g. cabinet hinges, black">
+      <label class="field-label" for="arrowSentDate">Date sent</label>
+      <input type="date" id="arrowSentDate" value="${todayISO()}">
+      <button class="add-btn" id="sendArrowBtn">+ Send to Arrow</button>
+    </div>
+    <div class="section-title">Currently at Arrow</div>
+    <div class="card">${activeHTML}</div>
+    <div class="section-title">Returned history</div>
+    <div class="card">${returnedHTML}</div>
+  `;
+}
+function attachArrowHandlers(){
+  document.getElementById('sendArrowBtn').onclick = async () => {
+    const jobNumber = document.getElementById('arrowJobNum').value.trim();
+    const description = document.getElementById('arrowDesc').value.trim();
+    const sentDate = document.getElementById('arrowSentDate').value || todayISO();
+    if (!jobNumber) { showToast('Enter a project number'); return; }
+    const entry = { id: 'a' + Date.now() + Math.random().toString(36).slice(2,7), jobNumber, description, sentDate, returnedDate: null, createdAt: Date.now() };
+    arrowJobs.push(entry); cacheLocal(); render(); showToast('Sent to Arrow');
+    if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+    try {
+      setSyncStatus('syncing');
+      await remotePatchPath('arrowJobs', { [entry.id]: { jobNumber, description, sentDate, returnedDate: null, createdAt: entry.createdAt } });
+      setSyncStatus('synced');
+    } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
+  };
+  document.querySelectorAll('[data-return]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-return');
+      const job = arrowJobs.find(j => j.id === id);
+      if (!job) return;
+      openModal({
+        title: 'Mark as returned?',
+        text: `Confirm project #${escapeHTML(job.jobNumber)} has returned from Arrow.`,
+        confirmLabel: 'Mark Returned',
+        onConfirm: async () => {
+          job.returnedDate = todayISO();
+          cacheLocal(); render(); showToast('Marked returned');
+          if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+          try {
+            await remotePatchPath('arrowJobs', { [id]: { jobNumber: job.jobNumber, description: job.description, sentDate: job.sentDate, returnedDate: job.returnedDate, createdAt: job.createdAt } });
+            setSyncStatus('synced');
+          } catch (e) { setSyncStatus('offline'); showToast("Updated here — will sync once you're back online"); }
+        }
+      });
+    };
+  });
+  document.querySelectorAll('[data-del-arrow]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-del-arrow');
+      openModal({
+        title: 'Delete this record?',
+        text: "This removes it from Arrow history for everyone. This can't be undone.",
+        confirmLabel: 'Delete',
+        onConfirm: async () => {
+          arrowJobs = arrowJobs.filter(j => j.id !== id); cacheLocal(); render(); showToast('Deleted');
+          if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+          try { await remotePatchPath('arrowJobs', { [id]: null }); setSyncStatus('synced'); }
+          catch (e) { setSyncStatus('offline'); showToast("Removed here — will sync once you're back online"); }
+        }
+      });
+    };
+  });
+}
+
+// ---------- QC (project/item log with lookup) ----------
+function renderQC(){
+  return `
+    <div class="card">
+      <div class="dept-title">QC</div>
+      <label class="field-label" for="qcOrder">Project #</label>
+      <input type="text" id="qcOrder" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <label class="field-label" for="qcItem">Item ID</label>
+      <input type="text" id="qcItem" placeholder="e.g. CAB-14-B">
+      <label class="field-label" for="qcDate">Date</label>
+      <input type="date" id="qcDate" value="${todayISO()}">
+      <button class="add-btn" id="logQcBtn">+ Log QC'd item</button>
+    </div>
+    <div class="section-title">Look up a project</div>
+    <div class="card">
+      <input type="text" id="qcSearchInput" inputmode="numeric" pattern="[0-9]*" placeholder="Search by Project #" value="${escapeHTML(qcSearch)}">
+    </div>
+    <div id="qcResultsWrap"></div>
+  `;
+}
+function renderQCResults(){
+  const search = qcSearch.trim().toLowerCase();
+  const filtered = search ? qcEntries.filter(q => q.orderNumber.toLowerCase().includes(search)) : qcEntries;
+  const sorted = filtered.slice().sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
+  const listHTML = sorted.length ? sorted.map(q => `
+    <div class="line-item">
+      <span class="line-label mono">#${escapeHTML(q.orderNumber)}</span>
+      <span class="line-label">${escapeHTML(q.itemId)}<span class="line-note"> — ${formatShortDate(q.date)}</span></span>
+      <button class="del-btn" data-del-qc="${q.id}">&times;</button>
+    </div>`).join('') : `<div class="empty-state">${search ? `No QC items found for project "${escapeHTML(qcSearch)}".` : 'No QC items logged yet.'}</div>`;
+
+  document.getElementById('qcResultsWrap').innerHTML = `
+    <div class="section-title">${search ? `Results for "${escapeHTML(qcSearch)}"` : 'All QC entries'}</div>
+    <div class="card">${listHTML}</div>
+  `;
+  document.querySelectorAll('[data-del-qc]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-del-qc');
+      openModal({
+        title: 'Delete this QC record?',
+        text: "This removes it from the shared log for everyone. This can't be undone.",
+        confirmLabel: 'Delete',
+        onConfirm: async () => {
+          qcEntries = qcEntries.filter(q => q.id !== id); cacheLocal(); renderQCResults(); renderChips(); showToast('Deleted');
+          if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+          try { await remotePatchPath('qcEntries', { [id]: null }); setSyncStatus('synced'); }
+          catch (e) { setSyncStatus('offline'); showToast("Removed here — will sync once you're back online"); }
+        }
+      });
+    };
+  });
+}
+function attachQCHandlers(){
+  document.getElementById('logQcBtn').onclick = async () => {
+    const orderNumber = document.getElementById('qcOrder').value.trim();
+    const itemId = document.getElementById('qcItem').value.trim();
+    const date = document.getElementById('qcDate').value || todayISO();
+    if (!orderNumber || !itemId) { showToast('Enter both a Project # and Item ID'); return; }
+    const entry = { id: 'q' + Date.now() + Math.random().toString(36).slice(2,7), orderNumber, itemId, date, createdAt: Date.now() };
+    qcEntries.push(entry); cacheLocal(); render(); showToast('QC item logged');
+    if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+    try {
+      setSyncStatus('syncing');
+      await remotePatchPath('qcEntries', { [entry.id]: { orderNumber, itemId, date, createdAt: entry.createdAt } });
+      setSyncStatus('synced');
+    } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
+  };
+  document.getElementById('qcSearchInput').oninput = (e) => { qcSearch = e.target.value; renderQCResults(); };
+  renderQCResults();
+}
+
+// ---------- OVERVIEW (aggregated across all departments) ----------
+function renderOverview(){
+  return overviewPeriod === 'month' ? renderOverviewMonth() : renderOverviewYear();
+}
+function periodToggleHTML(){
+  return `
+    <div class="period-toggle">
+      <button class="toggle-btn${overviewPeriod==='month'?' active':''}" data-period="month">Month</button>
+      <button class="toggle-btn${overviewPeriod==='year'?' active':''}" data-period="year">Year</button>
+    </div>`;
+}
+function deptBreakdownHTML(periodIssues){
+  const standardDepts = DEPARTMENTS.filter(d => d.type === 'standard');
+  const byDept = standardDepts.map(d => ({ dept: d, count: periodIssues.filter(i => i.department === d.key).length }))
+    .sort((a,b) => b.count - a.count);
+  const maxCount = Math.max(...byDept.map(x => x.count), 1);
+  return byDept.map(({dept, count}) => {
+    const pct = Math.max(count > 0 ? 4 : 0, Math.round(count / maxCount * 100));
+    const expanded = expandedDept === dept.key;
+    const byType = {};
+    periodIssues.filter(i => i.department === dept.key).forEach(i => { byType[i.category] = (byType[i.category] || 0) + 1; });
+    const sortedTypes = Object.entries(byType).sort((a,b) => b[1] - a[1]);
+    const topCount = sortedTypes.length ? sortedTypes[0][1] : 0;
+    const topNames = sortedTypes.filter(([,c]) => c === topCount).map(([name]) => name);
+    const topLine = count > 0 ? `Most common: ${topNames.map(escapeHTML).join(' / ')} (${topCount})` : 'No issues this period';
+    const typeRows = sortedTypes.map(([type, c]) => `<div class="type-row"><span>${escapeHTML(type)}</span><span class="mono">${c}</span></div>`).join('');
+    return `
+      <div class="ov-dept-row">
+        <button class="ov-dept-toggle" data-toggle-dept="${dept.key}">
+          <div class="bar-row-top"><span>${escapeHTML(dept.label)}</span><span class="mono">${count}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:var(--accent)"></div></div>
+          <div class="ov-top-issue">${topLine}</div>
+        </button>
+        ${expanded ? `<div class="ov-dept-detail">${count > 0 ? typeRows : ''}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+function snapshotsHTML(periodIssues, ymOrYear, isYear){
+  const activeArrow = arrowJobs.filter(j => !j.returnedDate);
+  const returnedInPeriod = arrowJobs.filter(j => j.returnedDate && (isYear ? j.returnedDate.startsWith(String(ymOrYear)) : j.returnedDate.startsWith(ymOrYear)));
+  const avgTurnaround = returnedInPeriod.length ? Math.round(returnedInPeriod.reduce((s,j) => s + daysBetween(j.sentDate, j.returnedDate), 0) / returnedInPeriod.length) : null;
+  const oldestActive = activeArrow.length ? Math.max(...activeArrow.map(j => daysBetween(j.sentDate, todayISO()))) : null;
+  const qcCount = qcEntries.filter(q => isYear ? q.date.startsWith(String(ymOrYear)) : q.date.startsWith(ymOrYear)).length;
+  return `
+    <div class="section-title">Arrow snapshot</div>
+    <div class="card">
+      <div class="line-item"><span class="line-label">Currently at Arrow</span><span class="leader"></span><span class="line-amount mono">${activeArrow.length}</span></div>
+      <div class="line-item"><span class="line-label">Longest active job</span><span class="leader"></span><span class="line-amount mono">${oldestActive !== null ? oldestActive + 'd' : '—'}</span></div>
+      <div class="line-item"><span class="line-label">Avg turnaround (returned this period)</span><span class="leader"></span><span class="line-amount mono">${avgTurnaround !== null ? avgTurnaround + 'd' : '—'}</span></div>
+    </div>
+    <div class="section-title">QC snapshot</div>
+    <div class="card">
+      <div class="line-item"><span class="line-label">Items QC'd this period</span><span class="leader"></span><span class="line-amount mono">${qcCount}</span></div>
+    </div>`;
+}
+function renderOverviewMonth(){
+  const { y, m } = overviewMonthCursor;
+  const ym = `${y}-${String(m+1).padStart(2,'0')}`;
+  const periodIssues = issues.filter(i => i.date.startsWith(ym));
+  return `
+    <div class="card">
+      <div class="nav-row">
+        <button class="nav-btn" id="ovPrev">&lsaquo;</button>
+        <span class="nav-title">${MONTH_NAMES[m]} ${y}</span>
+        <button class="nav-btn" id="ovNext">&rsaquo;</button>
+      </div>
+      ${periodToggleHTML()}
+      <div class="headline-num mono" style="margin-top:14px;">${periodIssues.length}</div>
+      <div class="headline-sub">issues logged across all departments</div>
+    </div>
+    <div class="section-title">By department <span style="text-transform:none;letter-spacing:0;">(tap to see issue types)</span></div>
+    <div class="card">${deptBreakdownHTML(periodIssues)}</div>
+    ${snapshotsHTML(periodIssues, ym, false)}
+  `;
+}
+function renderOverviewYear(){
+  const y = overviewYearCursor;
+  const periodIssues = issues.filter(i => i.date.startsWith(String(y)));
+  return `
+    <div class="card">
+      <div class="nav-row">
+        <button class="nav-btn" id="ovPrev">&lsaquo;</button>
+        <span class="nav-title">${y}</span>
+        <button class="nav-btn" id="ovNext">&rsaquo;</button>
+      </div>
+      ${periodToggleHTML()}
+      <div class="headline-num mono" style="margin-top:14px;">${periodIssues.length}</div>
+      <div class="headline-sub">issues logged across all departments</div>
+    </div>
+    <div class="section-title">By department <span style="text-transform:none;letter-spacing:0;">(tap to see issue types)</span></div>
+    <div class="card">${deptBreakdownHTML(periodIssues)}</div>
+    ${snapshotsHTML(periodIssues, y, true)}
+  `;
+}
+function attachOverviewHandlers(){
+  document.querySelectorAll('[data-period]').forEach(btn => {
+    btn.onclick = () => { overviewPeriod = btn.getAttribute('data-period'); render(); };
+  });
+  const prevBtn = document.getElementById('ovPrev');
+  const nextBtn = document.getElementById('ovNext');
+  if (prevBtn) prevBtn.onclick = () => {
+    if (overviewPeriod === 'month') { overviewMonthCursor.m--; if (overviewMonthCursor.m < 0) { overviewMonthCursor.m = 11; overviewMonthCursor.y--; } }
+    else { overviewYearCursor--; }
+    render();
+  };
+  if (nextBtn) nextBtn.onclick = () => {
+    if (overviewPeriod === 'month') { overviewMonthCursor.m++; if (overviewMonthCursor.m > 11) { overviewMonthCursor.m = 0; overviewMonthCursor.y++; } }
+    else { overviewYearCursor++; }
+    render();
+  };
+  document.querySelectorAll('[data-toggle-dept]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.getAttribute('data-toggle-dept');
+      expandedDept = expandedDept === key ? null : key;
+      render();
+    };
+  });
+}
+
+// ---------- main render ----------
+function render(){
+  renderChips();
+  renderMasthead();
+  const content = document.getElementById('content');
+  if (activeDept === 'overview') { content.innerHTML = renderOverview(); attachOverviewHandlers(); return; }
+  const dept = DEPARTMENTS.find(d => d.key === activeDept);
+  if (dept.type === 'standard') { content.innerHTML = renderStandardDept(dept); attachStandardHandlers(dept); }
+  else if (dept.type === 'arrow') { content.innerHTML = renderArrow(); attachArrowHandlers(); }
+  else { content.innerHTML = renderQC(); attachQCHandlers(); }
+}
+
+document.getElementById('refreshBtn').onclick = () => syncPull(true);
+
+function exportBackup(){
+  const payload = { exportedAt: new Date().toISOString(), issues, arrowJobs, qcEntries };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `shop-floor-log-backup-${todayISO()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Backup downloaded');
+}
+document.getElementById('backupBtn').onclick = exportBackup;
+
+document.getElementById('resetBtn').onclick = () => {
+  openModal({
+    title: 'Clear the entire shared log?',
+    text: "This deletes every issue, Arrow record, and QC entry — for everyone, permanently. This can't be undone.",
+    confirmLabel: 'Clear everything',
+    onConfirm: async () => {
+      issues = []; arrowJobs = []; qcEntries = [];
+      cacheLocal(); render(); showToast('Log cleared');
+      if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+      try {
+        await Promise.all([remoteReplacePath('issues', null), remoteReplacePath('arrowJobs', null), remoteReplacePath('qcEntries', null)]);
+        setSyncStatus('synced');
+      } catch (e) { setSyncStatus('offline'); showToast('Cleared here — will sync once online'); }
+    }
+  });
+};
+
+(async function init(){
+  loadLocalCache();
+  render();
+  await syncPull(false);
+  if (isConfigured()) {
+    setInterval(() => syncPull(false), POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPull(false); });
+  }
+})();
+</script>
+</body>
+</html>

@@ -136,10 +136,7 @@
     <div class="masthead">
       <div class="masthead-top">
         <span class="brand">SUPERVISOR APP</span>
-        <div style="display:flex; gap:14px; align-items:center;">
-          <button class="text-btn" id="backupBtn">Backup</button>
-          <button class="text-btn" id="resetBtn">Clear data</button>
-        </div>
+        <button class="text-btn" id="backupBtn">Backup</button>
       </div>
       <div class="sync-row">
         <span class="sync-dot" id="syncDot"></span>
@@ -745,23 +742,6 @@ function exportBackup(){
   showToast('Backup downloaded');
 }
 document.getElementById('backupBtn').onclick = exportBackup;
-
-document.getElementById('resetBtn').onclick = () => {
-  openModal({
-    title: 'Clear the entire shared log?',
-    text: "This deletes every issue, Arrow record, and QC entry — for everyone, permanently. This can't be undone.",
-    confirmLabel: 'Clear everything',
-    onConfirm: async () => {
-      issues = []; arrowJobs = []; qcEntries = [];
-      cacheLocal(); render(); showToast('Log cleared');
-      if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
-      try {
-        await Promise.all([remoteReplacePath('issues', null), remoteReplacePath('arrowJobs', null), remoteReplacePath('qcEntries', null)]);
-        setSyncStatus('synced');
-      } catch (e) { setSyncStatus('offline'); showToast('Cleared here — will sync once online'); }
-    }
-  });
-};
 
 (async function init(){
   loadLocalCache();

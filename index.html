@@ -53,6 +53,12 @@
   .sync-dot.synced{ background: #4F7A4A; }
   .sync-dot.offline{ background: var(--warn); }
   .refresh-btn{ background:none; border:none; color: var(--ink-soft); font-size: 13px; cursor:pointer; margin-left:auto; padding:2px 4px; }
+  .identity-row{ display:flex; align-items:center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--ink-soft); }
+  .identity-row b{ color: var(--ink); font-weight: 700; }
+  .identity-switch{ background:none; border:none; color: var(--ink-soft); font-size: 11px; cursor:pointer; text-decoration: underline; padding: 0; }
+  .identity-grid{ display:flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .identity-btn{ flex: 1 1 28%; min-width: 96px; padding: 16px 8px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--white); color: var(--ink); font-size: 14px; font-weight: 600; cursor:pointer; text-align:center; }
+  .identity-btn:hover{ border-color: var(--accent); }
   .headline{ margin-top: 12px; }
   .headline-num{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 30px; line-height:1.1; }
   .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
@@ -143,6 +149,7 @@
         <span id="syncText">Connecting&hellip;</span>
         <button class="refresh-btn" id="refreshBtn" title="Refresh now">&#8635; Refresh</button>
       </div>
+      <div class="identity-row" id="identityRow"></div>
       <div class="headline">
         <div class="headline-num mono" id="headlineNum">0</div>
         <div class="headline-sub" id="headlineSub">issues logged this month</div>
@@ -203,6 +210,8 @@ const DEPARTMENTS = [
     issues:['Product damaged by PD','Product Damaged by customer','Missing Product on site','No site contact']},
 ];
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
+const IDENTITY_KEY = 'shop_floor_log_identity_v1';
+const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];
 const POLL_MS = 15000;
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -211,6 +220,7 @@ let issues = [];
 let arrowJobs = [];
 let qcEntries = [];
 let activeDept = DEPARTMENTS[0].key;
+let currentUser = null;
 let qcSearch = '';
 const today = new Date();
 let overviewPeriod = 'month';
@@ -247,6 +257,9 @@ function loadLocalCache(){
     issues = d.issues || []; arrowJobs = d.arrowJobs || []; qcEntries = d.qcEntries || [];
   } catch(e){}
 }
+function loadIdentity(){ try { return localStorage.getItem(IDENTITY_KEY) || null; } catch(e){ return null; } }
+function saveIdentity(name){ try { localStorage.setItem(IDENTITY_KEY, name); } catch(e){} }
+function clearIdentity(){ try { localStorage.removeItem(IDENTITY_KEY); } catch(e){} currentUser = null; render(); }
 
 // ---------- cloud sync (Firebase Realtime Database REST) ----------
 function setSyncStatus(status){
@@ -320,6 +333,27 @@ function openModal({title, text, confirmLabel, onConfirm}){
   document.getElementById('modalConfirm').onclick = () => { root.innerHTML = ''; onConfirm(); };
 }
 
+// ---------- identity picker (who's using this device) ----------
+function renderIdentityPicker(){
+  return `
+    <div class="card" style="margin-top:8px;">
+      <div class="dept-title">Who's logging in?</div>
+      <div class="muted">Pick your name — this device will remember it.</div>
+      <div class="identity-grid">
+        ${TEAM.map(name => `<button class="identity-btn" data-pick="${escapeHTML(name)}">${escapeHTML(name)}</button>`).join('')}
+      </div>
+    </div>`;
+}
+function attachIdentityHandlers(){
+  document.querySelectorAll('[data-pick]').forEach(btn => {
+    btn.onclick = () => {
+      currentUser = btn.getAttribute('data-pick');
+      saveIdentity(currentUser);
+      render();
+    };
+  });
+}
+
 // ---------- chip bar + masthead ----------
 function chipBadge(dept){
   if (dept.type === 'standard') return issues.filter(i => i.department === dept.key && i.date.startsWith(currentYM())).length;
@@ -344,6 +378,11 @@ function renderMasthead(){
   const count = issues.filter(i => i.date.startsWith(ym)).length;
   document.getElementById('headlineNum').textContent = String(count);
   document.getElementById('headlineSub').textContent = `issues logged this month, across ${DEPARTMENTS.filter(d=>d.type==='standard').length} departments`;
+  const idRow = document.getElementById('identityRow');
+  if (idRow) {
+    idRow.innerHTML = `Logged in as <b>${escapeHTML(currentUser || '')}</b> <button class="identity-switch" id="switchUserBtn">Not you?</button>`;
+    document.getElementById('switchUserBtn').onclick = clearIdentity;
+  }
 }
 
 // ---------- STANDARD department (issue log) ----------
@@ -363,7 +402,7 @@ function renderStandardDept(dept){
         </button>
         <button class="del-btn" data-del-issue="${i.id}">&times;</button>
       </div>
-      ${expanded ? `<div class="issue-detail">${formatShortDate(i.date)}${i.note ? ` — ${escapeHTML(i.note)}` : ' — no additional notes'}</div>` : ''}
+      ${expanded ? `<div class="issue-detail">${formatShortDate(i.date)}${i.loggedBy ? ` — Logged by ${escapeHTML(i.loggedBy)}` : ''}${i.note ? ` — ${escapeHTML(i.note)}` : ' — no additional notes'}</div>` : ''}
     </div>`;
   }).join('') : `<div class="empty-state">No issues logged yet for ${escapeHTML(dept.label)}.</div>`;
 
@@ -397,12 +436,12 @@ function attachStandardHandlers(dept){
       showToast('Enter a project number');
       return;
     }
-    const entry = { id: 'i' + Date.now() + Math.random().toString(36).slice(2,7), department: dept.key, projectNumber, category, date, note, createdAt: Date.now() };
+    const entry = { id: 'i' + Date.now() + Math.random().toString(36).slice(2,7), department: dept.key, projectNumber, category, date, note, loggedBy: currentUser, createdAt: Date.now() };
     issues.push(entry); cacheLocal(); render(); showToast('Issue logged');
     if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
     try {
       setSyncStatus('syncing');
-      await remotePatchPath('issues', { [entry.id]: { department: entry.department, projectNumber: entry.projectNumber, category: entry.category, date: entry.date, note: entry.note, createdAt: entry.createdAt } });
+      await remotePatchPath('issues', { [entry.id]: { department: entry.department, projectNumber: entry.projectNumber, category: entry.category, date: entry.date, note: entry.note, loggedBy: entry.loggedBy, createdAt: entry.createdAt } });
       setSyncStatus('synced');
     } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
   };
@@ -443,7 +482,7 @@ function renderArrow(){
     return `
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
-      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — sent ${formatShortDate(j.sentDate)} (${days}d)</span></span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — sent ${formatShortDate(j.sentDate)}${j.sentBy ? ` by ${escapeHTML(j.sentBy)}` : ''} (${days}d)</span></span>
       <button class="add-btn" style="width:auto; padding:8px 14px; margin:0; font-size:11px;" data-return="${j.id}">Mark Returned</button>
     </div>`;
   }).join('') : `<div class="empty-state">Nothing currently at Arrow.</div>`;
@@ -453,7 +492,7 @@ function renderArrow(){
     return `
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
-      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — ${formatShortDate(j.sentDate)} to ${formatShortDate(j.returnedDate)} (${days}d)</span></span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — ${formatShortDate(j.sentDate)} to ${formatShortDate(j.returnedDate)} (${days}d)${j.returnedBy ? ` · returned by ${escapeHTML(j.returnedBy)}` : ''}</span></span>
       <button class="del-btn" data-del-arrow="${j.id}">&times;</button>
     </div>`;
   }).join('') : `<div class="empty-state">No returned jobs yet.</div>`;
@@ -481,12 +520,12 @@ function attachArrowHandlers(){
     const description = document.getElementById('arrowDesc').value.trim();
     const sentDate = document.getElementById('arrowSentDate').value || todayISO();
     if (!jobNumber) { showToast('Enter a project number'); return; }
-    const entry = { id: 'a' + Date.now() + Math.random().toString(36).slice(2,7), jobNumber, description, sentDate, returnedDate: null, createdAt: Date.now() };
+    const entry = { id: 'a' + Date.now() + Math.random().toString(36).slice(2,7), jobNumber, description, sentDate, returnedDate: null, sentBy: currentUser, returnedBy: null, createdAt: Date.now() };
     arrowJobs.push(entry); cacheLocal(); render(); showToast('Sent to Arrow');
     if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
     try {
       setSyncStatus('syncing');
-      await remotePatchPath('arrowJobs', { [entry.id]: { jobNumber, description, sentDate, returnedDate: null, createdAt: entry.createdAt } });
+      await remotePatchPath('arrowJobs', { [entry.id]: { jobNumber, description, sentDate, returnedDate: null, sentBy: entry.sentBy, returnedBy: null, createdAt: entry.createdAt } });
       setSyncStatus('synced');
     } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
   };
@@ -501,10 +540,11 @@ function attachArrowHandlers(){
         confirmLabel: 'Mark Returned',
         onConfirm: async () => {
           job.returnedDate = todayISO();
+          job.returnedBy = currentUser;
           cacheLocal(); render(); showToast('Marked returned');
           if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
           try {
-            await remotePatchPath('arrowJobs', { [id]: { jobNumber: job.jobNumber, description: job.description, sentDate: job.sentDate, returnedDate: job.returnedDate, createdAt: job.createdAt } });
+            await remotePatchPath('arrowJobs', { [id]: { jobNumber: job.jobNumber, description: job.description, sentDate: job.sentDate, returnedDate: job.returnedDate, sentBy: job.sentBy, returnedBy: job.returnedBy, createdAt: job.createdAt } });
             setSyncStatus('synced');
           } catch (e) { setSyncStatus('offline'); showToast("Updated here — will sync once you're back online"); }
         }
@@ -556,7 +596,7 @@ function renderQCResults(){
   const listHTML = sorted.length ? sorted.map(q => `
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(q.orderNumber)}</span>
-      <span class="line-label">${escapeHTML(q.itemId)}<span class="line-note"> — ${formatShortDate(q.date)}</span></span>
+      <span class="line-label">${escapeHTML(q.itemId)}<span class="line-note"> — ${formatShortDate(q.date)}${q.loggedBy ? ` · ${escapeHTML(q.loggedBy)}` : ''}</span></span>
       <button class="del-btn" data-del-qc="${q.id}">&times;</button>
     </div>`).join('') : `<div class="empty-state">${search ? `No QC items found for project "${escapeHTML(qcSearch)}".` : 'No QC items logged yet.'}</div>`;
 
@@ -587,12 +627,12 @@ function attachQCHandlers(){
     const itemId = document.getElementById('qcItem').value.trim();
     const date = document.getElementById('qcDate').value || todayISO();
     if (!orderNumber || !itemId) { showToast('Enter both a Project # and Item ID'); return; }
-    const entry = { id: 'q' + Date.now() + Math.random().toString(36).slice(2,7), orderNumber, itemId, date, createdAt: Date.now() };
+    const entry = { id: 'q' + Date.now() + Math.random().toString(36).slice(2,7), orderNumber, itemId, date, loggedBy: currentUser, createdAt: Date.now() };
     qcEntries.push(entry); cacheLocal(); render(); showToast('QC item logged');
     if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
     try {
       setSyncStatus('syncing');
-      await remotePatchPath('qcEntries', { [entry.id]: { orderNumber, itemId, date, createdAt: entry.createdAt } });
+      await remotePatchPath('qcEntries', { [entry.id]: { orderNumber, itemId, date, loggedBy: entry.loggedBy, createdAt: entry.createdAt } });
       setSyncStatus('synced');
     } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
   };
@@ -721,9 +761,16 @@ function attachOverviewHandlers(){
 
 // ---------- main render ----------
 function render(){
+  const content = document.getElementById('content');
+  if (!currentUser) {
+    document.getElementById('deptNav').innerHTML = '';
+    document.getElementById('identityRow').innerHTML = '';
+    content.innerHTML = renderIdentityPicker();
+    attachIdentityHandlers();
+    return;
+  }
   renderChips();
   renderMasthead();
-  const content = document.getElementById('content');
   if (activeDept === 'overview') { content.innerHTML = renderOverview(); attachOverviewHandlers(); return; }
   const dept = DEPARTMENTS.find(d => d.key === activeDept);
   if (dept.type === 'standard') { content.innerHTML = renderStandardDept(dept); attachStandardHandlers(dept); }
@@ -746,6 +793,7 @@ function exportBackup(){
 document.getElementById('backupBtn').onclick = exportBackup;
 
 (async function init(){
+  currentUser = loadIdentity();
   loadLocalCache();
   render();
   await syncPull(false);

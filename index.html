@@ -42,7 +42,7 @@
   .banner{ background: var(--ink); color: var(--white); font-size: 12px; line-height: 1.5; padding: 10px 16px; display: none; }
   .banner.show{ display:block; }
   .banner.banner-warn{ background: var(--warn); }
-  .sticky-top{ position: sticky; top:0; z-index: 5; background: var(--bg); padding-top: env(safe-area-inset-top); }
+  .sticky-top{ background: var(--bg); padding-top: env(safe-area-inset-top); }
   .masthead{ background: var(--card); margin: 14px 14px 0 14px; border-radius: 12px 12px 0 0; padding: 16px 18px 14px 18px; border-top: 4px solid var(--accent); }
   .masthead-top{ display:flex; align-items:center; justify-content:space-between; }
   .brand{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 13px; letter-spacing: 1.5px; color: var(--ink); }
@@ -248,7 +248,7 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
-const APP_VERSION = '1';
+const APP_VERSION = '2';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];

@@ -62,6 +62,8 @@
   .headline{ margin-top: 12px; }
   .headline-num{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 30px; line-height:1.1; }
   .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .my-tasks-card{ background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 10px 14px; }
+  .my-tasks-title{ font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
   .dept-nav{ display:flex; flex-wrap: wrap; gap: 8px; background: var(--card); margin: 0 14px; border-radius: 0 0 12px 12px; padding: 12px 14px 12px 14px; }
   .dept-chip.pinned{ flex-shrink:0; border-color: var(--ink); }
   .nav-row{ display:flex; align-items:center; justify-content: space-between; margin-bottom: 10px; }
@@ -155,6 +157,7 @@
         <div class="headline-sub" id="headlineSub">issues logged this month</div>
       </div>
     </div>
+    <div id="myTasksStrip"></div>
     <div class="dept-nav" id="deptNav"></div>
   </div>
   <main class="content" id="content"></main>
@@ -206,9 +209,36 @@ const DEPARTMENTS = [
     issues:['Screw through table','Damaged table during assembly','Damaged base during assembly','Table damaged in storage','Table damaged being moved through shop']},
   {key:'arrow', label:'ARROW — Powdercoating Tracking', short:'Arrow', type:'arrow'},
   {key:'qc', label:'QC', short:'QC', type:'qc'},
+  {key:'maintenance', label:'Routine Tasks', short:'Routine Tasks', type:'maintenance'},
   {key:'delivery', label:'Delivery', short:'Delivery', type:'standard',
     issues:['Product damaged by PD','Product Damaged by customer','Missing Product on site','No site contact']},
+  {key:'settings', label:'Settings', short:'Settings', type:'settings'},
 ];
+const MAINT_ADMINS = ['Luke H', 'David D'];
+const SETTINGS_ADMIN = 'Luke H';
+function canManageMaintenance(){ return MAINT_ADMINS.includes(currentUser); }
+const FULL_ACCESS_USERS = ['Luke H', 'David D'];
+const PERSON_DEPTS = {
+  'Eric B': ['fullcustom', 'finish', 'qc'],
+  'KP': ['arrow', 'qc', 'assembly'],
+  'Donnie E': ['milling', 'glueup', 'cnc'],
+  'Mike B': ['sanding', 'finish'],
+  'Shawn K': ['delivery', 'qc', 'arrow', 'assembly'],
+  'Willie J': ['metal', 'arrow'],
+  'Jim W': ['finish'],
+};
+function isDeptVisible(d){
+  if (d.type === 'settings') return currentUser === SETTINGS_ADMIN;
+  if (d.type === 'maintenance') return true;
+  if (FULL_ACCESS_USERS.includes(currentUser)) return true;
+  const allowed = PERSON_DEPTS[currentUser];
+  if (!allowed) return true;
+  return allowed.includes(d.key);
+}
+function firstVisibleDept(){
+  const d = DEPARTMENTS.find(isDeptVisible);
+  return d ? d.key : 'overview';
+}
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];
@@ -219,6 +249,9 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 let issues = [];
 let arrowJobs = [];
 let qcEntries = [];
+let maintenanceItems = [];
+let maintenanceLogs = [];
+let expandedMaintId = null;
 let activeDept = DEPARTMENTS[0].key;
 let currentUser = null;
 let qcSearch = '';
@@ -237,6 +270,82 @@ function currentYM(){ return `${today.getFullYear()}-${String(today.getMonth()+1
 function parseISO(iso){ const [y,m,d] = iso.split('-').map(Number); return new Date(y, m-1, d); }
 function formatShortDate(iso){ const d = parseISO(iso); return `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`; }
 function daysBetween(startISO, endISO){ return Math.round((parseISO(endISO) - parseISO(startISO)) / 86400000); }
+function addDaysISO(iso, days){
+  const d = parseISO(iso);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function isoOfDate(d){
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const OCCURRENCE_LABELS = {1:'1st', 2:'2nd', 3:'3rd', 4:'4th', '-1':'Last'};
+function nthWeekdayOfMonth(year, monthIndex, weekday, occurrence){
+  if (occurrence === -1) {
+    let d = new Date(year, monthIndex+1, 0); // last day of month
+    while (d.getDay() !== weekday) d.setDate(d.getDate()-1);
+    return d;
+  }
+  let count = 0;
+  let d = new Date(year, monthIndex, 1);
+  while (d.getMonth() === monthIndex) {
+    if (d.getDay() === weekday) { count++; if (count === occurrence) return new Date(d); }
+    d.setDate(d.getDate()+1);
+  }
+  return null; // e.g. asked for 5th occurrence and month only has 4
+}
+function computeAnchor(item){
+  if (item.scheduleType === 'weekly') {
+    let d = parseISO(item.startDate);
+    while (d.getDay() !== item.weekday) d.setDate(d.getDate()+1);
+    return isoOfDate(d);
+  }
+  let d = parseISO(item.startDate);
+  let year = d.getFullYear(), month = d.getMonth();
+  for (let i = 0; i < 24; i++) {
+    const occ = nthWeekdayOfMonth(year, month, item.weekday, item.monthlyOccurrence);
+    if (occ && isoOfDate(occ) >= item.startDate) return isoOfDate(occ);
+    month++; if (month > 11) { month = 0; year++; }
+  }
+  return item.startDate;
+}
+function scheduleLabel(item){
+  if (!item.scheduleType) return item.intervalDays ? `Every ${item.intervalDays} days` : 'Custom schedule';
+  const wd = WEEKDAY_NAMES[item.weekday];
+  if (item.scheduleType === 'monthly') return `${OCCURRENCE_LABELS[item.monthlyOccurrence] || '1st'} ${wd} of every month`;
+  return item.weekInterval === 1 ? `Every ${wd}` : `Every ${item.weekInterval} weeks (${wd})`;
+}
+function nextDueISO(item){
+  const logs = maintenanceLogs.filter(l => l.itemId === item.id);
+  const lastDate = logs.length ? logs.reduce((max, l) => (l.date > max ? l.date : max), logs[0].date) : null;
+  const searchFrom = lastDate ? addDaysISO(lastDate, 1) : item.startDate;
+
+  // legacy fallback for any item created before weekday-based scheduling existed
+  if (!item.scheduleType) return lastDate ? addDaysISO(lastDate, item.intervalDays) : item.startDate;
+
+  if (item.scheduleType === 'weekly') {
+    const anchor = computeAnchor(item);
+    let d = parseISO(searchFrom < anchor ? anchor : searchFrom);
+    while (true) {
+      if (d.getDay() === item.weekday) {
+        const weeksSinceAnchor = Math.round(daysBetween(anchor, isoOfDate(d)) / 7);
+        if (weeksSinceAnchor >= 0 && weeksSinceAnchor % item.weekInterval === 0) return isoOfDate(d);
+      }
+      d.setDate(d.getDate()+1);
+    }
+  }
+  // monthly
+  let d = parseISO(searchFrom);
+  let year = d.getFullYear(), month = d.getMonth();
+  for (let i = 0; i < 24; i++) {
+    const occ = nthWeekdayOfMonth(year, month, item.weekday, item.monthlyOccurrence);
+    if (occ) { const occISO = isoOfDate(occ); if (occISO >= searchFrom) return occISO; }
+    month++; if (month > 11) { month = 0; year++; }
+  }
+  return searchFrom;
+}
 function escapeHTML(s){ const div = document.createElement('div'); div.textContent = s == null ? '' : s; return div.innerHTML; }
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -248,18 +357,19 @@ function isConfigured(){ return FIREBASE_URL && FIREBASE_URL.indexOf('PASTE_YOUR
 function objToArr(obj){ if (!obj) return []; return Object.entries(obj).map(([id, v]) => ({ id, ...v })); }
 
 // ---------- local cache (offline fallback only) ----------
-function cacheLocal(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify({issues, arrowJobs, qcEntries})); } catch(e){} }
+function cacheLocal(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify({issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs})); } catch(e){} }
 function loadLocalCache(){
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
     issues = d.issues || []; arrowJobs = d.arrowJobs || []; qcEntries = d.qcEntries || [];
+    maintenanceItems = d.maintenanceItems || []; maintenanceLogs = d.maintenanceLogs || [];
   } catch(e){}
 }
 function loadIdentity(){ try { return localStorage.getItem(IDENTITY_KEY) || null; } catch(e){ return null; } }
 function saveIdentity(name){ try { localStorage.setItem(IDENTITY_KEY, name); } catch(e){} }
-function clearIdentity(){ try { localStorage.removeItem(IDENTITY_KEY); } catch(e){} currentUser = null; render(); }
+function clearIdentity(){ try { localStorage.removeItem(IDENTITY_KEY); } catch(e){} currentUser = null; activeDept = DEPARTMENTS[0].key; render(); }
 
 // ---------- cloud sync (Firebase Realtime Database REST) ----------
 function setSyncStatus(status){
@@ -301,10 +411,17 @@ async function syncPull(showFailToast){
   if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
   try {
     setSyncStatus('syncing');
-    const [i, a, q] = await Promise.all([remoteFetchPath('issues'), remoteFetchPath('arrowJobs'), remoteFetchPath('qcEntries')]);
+    const [i, a, q, mi, ml] = await Promise.all([
+      remoteFetchPath('issues'), remoteFetchPath('arrowJobs'), remoteFetchPath('qcEntries'),
+      remoteFetchPath('maintenanceItems'), remoteFetchPath('maintenanceLogs')
+    ]);
     const newIssues = objToArr(i), newArrow = objToArr(a), newQc = objToArr(q);
-    const changed = JSON.stringify({issues, arrowJobs, qcEntries}) !== JSON.stringify({issues:newIssues, arrowJobs:newArrow, qcEntries:newQc});
+    const newMaintItems = objToArr(mi), newMaintLogs = objToArr(ml);
+    const before = {issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs};
+    const after = {issues:newIssues, arrowJobs:newArrow, qcEntries:newQc, maintenanceItems:newMaintItems, maintenanceLogs:newMaintLogs};
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
     issues = newIssues; arrowJobs = newArrow; qcEntries = newQc;
+    maintenanceItems = newMaintItems; maintenanceLogs = newMaintLogs;
     cacheLocal();
     setSyncStatus('synced');
     if (changed) render();
@@ -349,6 +466,7 @@ function attachIdentityHandlers(){
     btn.onclick = () => {
       currentUser = btn.getAttribute('data-pick');
       saveIdentity(currentUser);
+      activeDept = firstVisibleDept();
       render();
     };
   });
@@ -359,12 +477,14 @@ function chipBadge(dept){
   if (dept.type === 'standard') return issues.filter(i => i.department === dept.key && i.date.startsWith(currentYM())).length;
   if (dept.type === 'arrow') return arrowJobs.filter(j => !j.returnedDate).length;
   if (dept.type === 'qc') return qcEntries.filter(q => q.date.startsWith(currentYM())).length;
+  if (dept.type === 'maintenance') return maintenanceItems.filter(item => daysBetween(todayISO(), nextDueISO(item)) <= 0).length;
   return 0;
 }
 function renderChips(){
   const wrap = document.getElementById('deptNav');
   const overviewHTML = `<button class="dept-chip pinned${activeDept==='overview'?' active':''}" data-dept="overview">Overview</button>`;
-  const deptHTML = DEPARTMENTS.map(d => {
+  const visibleDepts = DEPARTMENTS.filter(isDeptVisible);
+  const deptHTML = visibleDepts.map(d => {
     const badge = chipBadge(d);
     return `<button class="dept-chip${d.key===activeDept?' active':''}" data-dept="${d.key}">${escapeHTML(d.short)}${badge>0?`<span class="chip-badge">${badge}</span>`:''}</button>`;
   }).join('');
@@ -382,6 +502,13 @@ function renderMasthead(){
   if (idRow) {
     idRow.innerHTML = `Logged in as <b>${escapeHTML(currentUser || '')}</b> <button class="identity-switch" id="switchUserBtn">Not you?</button>`;
     document.getElementById('switchUserBtn').onclick = clearIdentity;
+  }
+  const stripEl = document.getElementById('myTasksStrip');
+  if (stripEl) {
+    stripEl.innerHTML = myTasksHTML();
+    document.querySelectorAll('[data-complete-maint-ov]').forEach(btn => {
+      btn.onclick = () => markMaintenanceComplete(btn.getAttribute('data-complete-maint-ov'));
+    });
   }
 }
 
@@ -411,7 +538,7 @@ function renderStandardDept(dept){
       <div class="dept-title">${escapeHTML(dept.label)}</div>
       <div class="muted">${monthCount} logged this month</div>
       <label class="field-label" for="issueProjectNum">Project #</label>
-      <input type="text" id="issueProjectNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <input type="text" id="issueProjectNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 432">
       <label class="field-label" for="issueCategory">Issue type</label>
       <select id="issueCategory">${options}</select>
       <label class="field-label" for="issueDate">Date</label>
@@ -501,7 +628,7 @@ function renderArrow(){
     <div class="card">
       <div class="dept-title">ARROW — Powdercoating Tracking</div>
       <label class="field-label" for="arrowJobNum">Project #</label>
-      <input type="text" id="arrowJobNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <input type="text" id="arrowJobNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 432">
       <label class="field-label" for="arrowDesc">Description</label>
       <input type="text" id="arrowDesc" placeholder="e.g. cabinet hinges, black">
       <label class="field-label" for="arrowSentDate">Date sent</label>
@@ -575,7 +702,7 @@ function renderQC(){
     <div class="card">
       <div class="dept-title">QC</div>
       <label class="field-label" for="qcOrder">Project #</label>
-      <input type="text" id="qcOrder" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10432">
+      <input type="text" id="qcOrder" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 432">
       <label class="field-label" for="qcItem">Item ID</label>
       <input type="text" id="qcItem" placeholder="e.g. CAB-14-B">
       <label class="field-label" for="qcDate">Date</label>
@@ -677,12 +804,36 @@ function deptBreakdownHTML(periodIssues){
       </div>`;
   }).join('');
 }
+function myTasksHTML(){
+  const mine = maintenanceItems.filter(item => item.assignedTo === currentUser);
+  if (!mine.length) return '';
+  const sorted = mine.slice().sort((a,b) => daysBetween(todayISO(), nextDueISO(a)) - daysBetween(todayISO(), nextDueISO(b)));
+  const rows = sorted.map(item => {
+    const daysUntil = daysBetween(todayISO(), nextDueISO(item));
+    const isDue = daysUntil <= 0;
+    const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
+    return `
+      <div class="line-item">
+        <span class="line-label">${escapeHTML(item.name)}</span>
+        <span class="leader"></span>
+        <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${statusText}</span>
+        <button class="add-btn" style="width:auto; padding:6px 10px; margin:0 0 0 8px; font-size:11px;" data-complete-maint-ov="${item.id}">Done</button>
+      </div>`;
+  }).join('');
+  return `
+    <div class="my-tasks-card">
+      <div class="my-tasks-title">Your routine tasks</div>
+      ${rows}
+    </div>`;
+}
 function snapshotsHTML(periodIssues, ymOrYear, isYear){
   const activeArrow = arrowJobs.filter(j => !j.returnedDate);
   const returnedInPeriod = arrowJobs.filter(j => j.returnedDate && (isYear ? j.returnedDate.startsWith(String(ymOrYear)) : j.returnedDate.startsWith(ymOrYear)));
   const avgTurnaround = returnedInPeriod.length ? Math.round(returnedInPeriod.reduce((s,j) => s + daysBetween(j.sentDate, j.returnedDate), 0) / returnedInPeriod.length) : null;
   const oldestActive = activeArrow.length ? Math.max(...activeArrow.map(j => daysBetween(j.sentDate, todayISO()))) : null;
   const qcCount = qcEntries.filter(q => isYear ? q.date.startsWith(String(ymOrYear)) : q.date.startsWith(ymOrYear)).length;
+  const dueNow = maintenanceItems.filter(item => daysBetween(todayISO(), nextDueISO(item)) <= 0).length;
+  const dueSoon = maintenanceItems.filter(item => { const d = daysBetween(todayISO(), nextDueISO(item)); return d > 0 && d <= 7; }).length;
   return `
     <div class="section-title">Arrow snapshot</div>
     <div class="card">
@@ -693,6 +844,12 @@ function snapshotsHTML(periodIssues, ymOrYear, isYear){
     <div class="section-title">QC snapshot</div>
     <div class="card">
       <div class="line-item"><span class="line-label">Items QC'd this period</span><span class="leader"></span><span class="line-amount mono">${qcCount}</span></div>
+    </div>
+    <div class="section-title">Routine Tasks snapshot <span style="text-transform:none;letter-spacing:0;">(always current, not tied to this period)</span></div>
+    <div class="card">
+      <div class="line-item"><span class="line-label">Due now or overdue</span><span class="leader"></span><span class="line-amount mono">${dueNow}</span></div>
+      <div class="line-item"><span class="line-label">Due within 7 days</span><span class="leader"></span><span class="line-amount mono">${dueSoon}</span></div>
+      <div class="line-item"><span class="line-label">Total items tracked</span><span class="leader"></span><span class="line-amount mono">${maintenanceItems.length}</span></div>
     </div>`;
 }
 function renderOverviewMonth(){
@@ -759,6 +916,167 @@ function attachOverviewHandlers(){
   });
 }
 
+// ---------- MAINTENANCE (recurring schedule with completion log) ----------
+function markMaintenanceComplete(id){
+  const item = maintenanceItems.find(m => m.id === id);
+  if (!item) return;
+  openModal({
+    title: 'Mark as complete?',
+    text: `Log "${escapeHTML(item.name)}" as done today by ${escapeHTML(currentUser)}.`,
+    confirmLabel: 'Mark Complete',
+    onConfirm: async () => {
+      const log = { id: 'ml' + Date.now() + Math.random().toString(36).slice(2,7), itemId: id, date: todayISO(), completedBy: currentUser, createdAt: Date.now() };
+      maintenanceLogs.push(log); cacheLocal(); render(); showToast('Marked complete');
+      if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+      try {
+        await remotePatchPath('maintenanceLogs', { [log.id]: { itemId: log.itemId, date: log.date, completedBy: log.completedBy, createdAt: log.createdAt } });
+        setSyncStatus('synced');
+      } catch (e) { setSyncStatus('offline'); showToast("Updated here — will sync once you're back online"); }
+    }
+  });
+}
+function renderMaintenance(){
+  const items = maintenanceItems.slice().sort((a,b) => daysBetween(todayISO(), nextDueISO(a)) - daysBetween(todayISO(), nextDueISO(b)));
+  const canManage = canManageMaintenance();
+  const listHTML = items.length ? items.map(item => {
+    const due = nextDueISO(item);
+    const daysUntil = daysBetween(todayISO(), due);
+    const isDue = daysUntil <= 0;
+    const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
+    const logs = maintenanceLogs.filter(l => l.itemId === item.id).sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
+    const lastLog = logs[0];
+    const expanded = expandedMaintId === item.id;
+    const historyRows = logs.length ? logs.map(l => `<div class="type-row"><span>${formatShortDate(l.date)}</span><span>${escapeHTML(l.completedBy || '—')}</span></div>`).join('')
+      : '<div class="type-row"><span>Never completed yet</span><span></span></div>';
+    return `
+      <div class="issue-row">
+        <div class="issue-summary">
+          <button class="issue-toggle" data-toggle-maint="${item.id}">
+            <span class="line-label">${escapeHTML(item.name)}</span>
+            <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${item.assignedTo ? `${escapeHTML(item.assignedTo)} · ` : ''}${statusText}</span>
+          </button>
+          <button class="add-btn" style="width:auto; padding:8px 12px; margin:0; font-size:11px;" data-complete-maint="${item.id}">Mark Complete</button>
+          ${canManage ? `<button class="del-btn" data-del-maint="${item.id}">&times;</button>` : ''}
+        </div>
+        ${expanded ? `
+          <div class="issue-detail">
+            ${scheduleLabel(item)} · Last done: ${lastLog ? `${formatShortDate(lastLog.date)} by ${escapeHTML(lastLog.completedBy || '—')}` : 'never'}
+          </div>
+          <div class="ov-dept-detail">${historyRows}</div>
+        ` : ''}
+      </div>`;
+  }).join('') : `<div class="empty-state">No routine tasks set up yet.</div>`;
+
+  const addFormHTML = canManage ? `
+    <div class="card">
+      <div class="dept-title">Routine Tasks</div>
+      <label class="field-label" for="maintName">Item name</label>
+      <input type="text" id="maintName" placeholder="e.g. Change dust collector filter">
+      <label class="field-label" for="maintAssignee">Assigned to</label>
+      <select id="maintAssignee">${TEAM.map(n => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}</select>
+      <label class="field-label" for="maintFreqType">Frequency</label>
+      <select id="maintFreqType">
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+      <div id="weeklyFields">
+        <label class="field-label" for="maintWeekInterval">Every how many weeks?</label>
+        <input type="text" id="maintWeekInterval" inputmode="numeric" pattern="[0-9]*" value="1">
+      </div>
+      <div id="monthlyFields" style="display:none;">
+        <label class="field-label" for="maintOccurrence">Which occurrence?</label>
+        <select id="maintOccurrence">
+          <option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option>
+          <option value="4">4th</option><option value="-1">Last</option>
+        </select>
+      </div>
+      <label class="field-label" for="maintWeekday">Day of week</label>
+      <select id="maintWeekday">
+        <option value="1">Monday</option><option value="2">Tuesday</option>
+        <option value="3">Wednesday</option><option value="4">Thursday</option>
+      </select>
+      <label class="field-label" for="maintStart">Starting from</label>
+      <input type="date" id="maintStart" value="${todayISO()}">
+      <button class="add-btn" id="addMaintBtn">+ Add routine task</button>
+    </div>` : `
+    <div class="card">
+      <div class="dept-title">Routine Tasks</div>
+      <div class="muted">Only ${MAINT_ADMINS.map(escapeHTML).join(' and ')} can add new routine tasks. You can still mark items complete and view history below.</div>
+    </div>`;
+
+  return `
+    ${addFormHTML}
+    <div class="section-title">Schedule <span style="text-transform:none;letter-spacing:0;">(tap an item for history)</span></div>
+    <div class="card">${listHTML}</div>
+  `;
+}
+function attachMaintenanceHandlers(){
+  const addBtn = document.getElementById('addMaintBtn');
+  if (addBtn) {
+    document.getElementById('maintFreqType').onchange = (e) => {
+      const isWeekly = e.target.value === 'weekly';
+      document.getElementById('weeklyFields').style.display = isWeekly ? 'block' : 'none';
+      document.getElementById('monthlyFields').style.display = isWeekly ? 'none' : 'block';
+    };
+    addBtn.onclick = async () => {
+      const nameEl = document.getElementById('maintName');
+      const name = nameEl.value.trim();
+      const assignedTo = document.getElementById('maintAssignee').value;
+      const scheduleType = document.getElementById('maintFreqType').value;
+      const weekday = parseInt(document.getElementById('maintWeekday').value, 10);
+      const weekInterval = scheduleType === 'weekly' ? (parseInt(document.getElementById('maintWeekInterval').value, 10) || 1) : null;
+      const monthlyOccurrence = scheduleType === 'monthly' ? parseInt(document.getElementById('maintOccurrence').value, 10) : null;
+      const startDate = document.getElementById('maintStart').value || todayISO();
+      if (!name) { nameEl.style.borderColor = 'var(--warn)'; showToast('Enter an item name'); return; }
+      const item = { id: 'm' + Date.now() + Math.random().toString(36).slice(2,7), name, assignedTo, scheduleType, weekday, weekInterval, monthlyOccurrence, startDate, createdAt: Date.now() };
+      maintenanceItems.push(item); cacheLocal(); render(); showToast('Routine task added');
+      if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+      try {
+        setSyncStatus('syncing');
+        await remotePatchPath('maintenanceItems', { [item.id]: { name: item.name, assignedTo: item.assignedTo, scheduleType: item.scheduleType, weekday: item.weekday, weekInterval: item.weekInterval, monthlyOccurrence: item.monthlyOccurrence, startDate: item.startDate, createdAt: item.createdAt } });
+        setSyncStatus('synced');
+      } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
+    };
+  }
+  document.querySelectorAll('[data-toggle-maint]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-toggle-maint');
+      expandedMaintId = expandedMaintId === id ? null : id;
+      render();
+    };
+  });
+  document.querySelectorAll('[data-complete-maint]').forEach(btn => {
+    btn.onclick = () => markMaintenanceComplete(btn.getAttribute('data-complete-maint'));
+  });
+  if (canManageMaintenance()) {
+    document.querySelectorAll('[data-del-maint]').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.getAttribute('data-del-maint');
+        openModal({
+          title: 'Delete this routine task?',
+          text: "This removes it and its full completion history for everyone. This can't be undone.",
+          confirmLabel: 'Delete',
+          onConfirm: async () => {
+            const orphanLogIds = maintenanceLogs.filter(l => l.itemId === id).map(l => l.id);
+            maintenanceItems = maintenanceItems.filter(m => m.id !== id);
+            maintenanceLogs = maintenanceLogs.filter(l => l.itemId !== id);
+            cacheLocal(); render(); showToast('Deleted');
+            if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+            try {
+              const logPatch = {}; orphanLogIds.forEach(lid => { logPatch[lid] = null; });
+              await Promise.all([
+                remotePatchPath('maintenanceItems', { [id]: null }),
+                orphanLogIds.length ? remotePatchPath('maintenanceLogs', logPatch) : Promise.resolve()
+              ]);
+              setSyncStatus('synced');
+            } catch (e) { setSyncStatus('offline'); showToast("Removed here — will sync once you're back online"); }
+          }
+        });
+      };
+    });
+  }
+}
+
 // ---------- main render ----------
 function render(){
   const content = document.getElementById('content');
@@ -769,19 +1087,58 @@ function render(){
     attachIdentityHandlers();
     return;
   }
+  if (activeDept !== 'overview') {
+    const currentDept = DEPARTMENTS.find(d => d.key === activeDept);
+    if (!currentDept || !isDeptVisible(currentDept)) { activeDept = firstVisibleDept(); }
+  }
   renderChips();
   renderMasthead();
   if (activeDept === 'overview') { content.innerHTML = renderOverview(); attachOverviewHandlers(); return; }
   const dept = DEPARTMENTS.find(d => d.key === activeDept);
   if (dept.type === 'standard') { content.innerHTML = renderStandardDept(dept); attachStandardHandlers(dept); }
   else if (dept.type === 'arrow') { content.innerHTML = renderArrow(); attachArrowHandlers(); }
+  else if (dept.type === 'maintenance') { content.innerHTML = renderMaintenance(); attachMaintenanceHandlers(); }
+  else if (dept.type === 'settings') { content.innerHTML = renderSettings(); attachSettingsHandlers(); }
   else { content.innerHTML = renderQC(); attachQCHandlers(); }
+}
+
+// ---------- SETTINGS (Luke H only) ----------
+function renderSettings(){
+  return `
+    <div class="card">
+      <div class="dept-title">Settings</div>
+      <div class="muted">Only visible to ${escapeHTML(SETTINGS_ADMIN)}.</div>
+      <label class="field-label" style="margin-top:20px;">Danger zone</label>
+      <button class="text-btn" id="settingsClearBtn" style="color:var(--warn); border-color:var(--warn); margin-top:6px;">Clear all data</button>
+    </div>
+  `;
+}
+function attachSettingsHandlers(){
+  document.getElementById('settingsClearBtn').onclick = () => {
+    openModal({
+      title: 'Clear the entire shared log?',
+      text: "This deletes every issue, Arrow record, QC entry, and routine task/history — for everyone, permanently. This can't be undone.",
+      confirmLabel: 'Clear everything',
+      onConfirm: async () => {
+        issues = []; arrowJobs = []; qcEntries = []; maintenanceItems = []; maintenanceLogs = [];
+        cacheLocal(); render(); showToast('Log cleared');
+        if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
+        try {
+          await Promise.all([
+            remoteReplacePath('issues', null), remoteReplacePath('arrowJobs', null), remoteReplacePath('qcEntries', null),
+            remoteReplacePath('maintenanceItems', null), remoteReplacePath('maintenanceLogs', null)
+          ]);
+          setSyncStatus('synced');
+        } catch (e) { setSyncStatus('offline'); showToast('Cleared here — will sync once online'); }
+      }
+    });
+  };
 }
 
 document.getElementById('refreshBtn').onclick = () => syncPull(true);
 
 function exportBackup(){
-  const payload = { exportedAt: new Date().toISOString(), issues, arrowJobs, qcEntries };
+  const payload = { exportedAt: new Date().toISOString(), issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

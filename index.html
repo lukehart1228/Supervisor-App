@@ -53,6 +53,10 @@
   .sync-dot.synced{ background: #4F7A4A; }
   .sync-dot.offline{ background: var(--warn); }
   .refresh-btn{ background:none; border:none; color: var(--ink-soft); font-size: 13px; cursor:pointer; margin-left:auto; padding:2px 4px; }
+  .version-tag{ font-size: 10px; color: var(--ink-soft); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
+  .update-banner{ display:none; align-items:center; justify-content:space-between; gap: 10px; background: var(--accent); color: var(--white); font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-top: 8px; }
+  .update-banner.show{ display:flex; }
+  .update-banner button{ background: var(--white); color: var(--accent); border:none; border-radius: 6px; padding: 6px 10px; font-size: 11px; font-weight: 700; cursor:pointer; flex-shrink:0; }
   .identity-row{ display:flex; align-items:center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--ink-soft); }
   .identity-row b{ color: var(--ink); font-weight: 700; }
   .identity-switch{ background:none; border:none; color: var(--ink-soft); font-size: 11px; cursor:pointer; text-decoration: underline; padding: 0; }
@@ -147,7 +151,7 @@
   <div class="sticky-top">
     <div class="masthead">
       <div class="masthead-top">
-        <span class="brand">SUPERVISOR APP</span>
+        <span class="brand">SUPERVISOR APP <span class="version-tag" id="versionTag"></span></span>
         <button class="text-btn" id="backupBtn">Backup</button>
       </div>
       <div class="sync-row">
@@ -155,6 +159,7 @@
         <span id="syncText">Connecting&hellip;</span>
         <button class="refresh-btn" id="refreshBtn" title="Refresh now">&#8635; Refresh</button>
       </div>
+      <div class="update-banner" id="updateBanner"></div>
       <div class="identity-row" id="identityRow"></div>
       <div class="headline">
         <div class="headline-num mono" id="headlineNum">0</div>
@@ -243,6 +248,7 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
+const APP_VERSION = '1';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];
@@ -1140,7 +1146,25 @@ function attachSettingsHandlers(){
   };
 }
 
-document.getElementById('refreshBtn').onclick = () => syncPull(true);
+// ---------- version check (catches phones stuck on a cached/old copy) ----------
+function showUpdateAvailable(liveVersion){
+  const el = document.getElementById('updateBanner');
+  el.innerHTML = `<span>A newer version is available (v${escapeHTML(liveVersion)})</span><button id="reloadNowBtn">Reload</button>`;
+  el.classList.add('show');
+  document.getElementById('reloadNowBtn').onclick = () => location.reload();
+}
+async function checkForUpdate(){
+  try {
+    const url = window.location.pathname + '?cachebust=' + Date.now();
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('bad response');
+    const text = await res.text();
+    const match = text.match(/const APP_VERSION = '([^']+)'/);
+    const liveVersion = match ? match[1] : null;
+    if (liveVersion && liveVersion !== APP_VERSION) showUpdateAvailable(liveVersion);
+  } catch (e) { /* silent — not critical, just skip the check this time */ }
+}
+document.getElementById('refreshBtn').onclick = () => { syncPull(true); checkForUpdate(); };
 
 function exportBackup(){
   const payload = { exportedAt: new Date().toISOString(), issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs };
@@ -1173,10 +1197,12 @@ if (window.visualViewport) {
 }
 
 (async function init(){
+  document.getElementById('versionTag').textContent = 'v' + APP_VERSION;
   currentUser = loadIdentity();
   loadLocalCache();
   render();
   await syncPull(false);
+  checkForUpdate();
   if (isConfigured()) {
     setInterval(() => syncPull(false), POLL_MS);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPull(false); });

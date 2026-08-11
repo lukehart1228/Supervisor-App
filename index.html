@@ -64,6 +64,10 @@
   .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
   .my-tasks-card{ background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 10px 14px; }
   .my-tasks-title{ font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
+  .my-task-row{ display:flex; align-items:center; flex-wrap: nowrap; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .my-task-row:last-child{ border-bottom: none; }
+  .my-task-name{ flex: 1 1 auto; min-width: 0; font-size: 14px; color: var(--ink); word-break: break-word; }
+  .my-task-right{ flex-shrink: 0; display:flex; align-items:center; gap: 8px; }
   .dept-nav{ display:flex; flex-wrap: wrap; gap: 8px; background: var(--card); margin: 0 14px; border-radius: 0 0 12px 12px; padding: 12px 14px 12px 14px; }
   .dept-chip.pinned{ flex-shrink:0; border-color: var(--ink); }
   .nav-row{ display:flex; align-items:center; justify-content: space-between; margin-bottom: 10px; }
@@ -813,11 +817,12 @@ function myTasksHTML(){
     const isDue = daysUntil <= 0;
     const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
     return `
-      <div class="line-item">
-        <span class="line-label">${escapeHTML(item.name)}</span>
-        <span class="leader"></span>
-        <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${statusText}</span>
-        <button class="add-btn" style="width:auto; padding:6px 10px; margin:0 0 0 8px; font-size:11px;" data-complete-maint-ov="${item.id}">Done</button>
+      <div class="my-task-row">
+        <span class="my-task-name">${escapeHTML(item.name)}</span>
+        <span class="my-task-right">
+          <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${statusText}</span>
+          <button class="add-btn" style="width:auto; padding:6px 10px; margin:0; font-size:11px;" data-complete-maint-ov="${item.id}">Done</button>
+        </span>
       </div>`;
   }).join('');
   return `

@@ -1154,6 +1154,24 @@ function exportBackup(){
 }
 document.getElementById('backupBtn').onclick = exportBackup;
 
+// ---------- keep the focused field visible above the on-screen keyboard ----------
+function scrollFieldIntoView(el){
+  if (!el) return;
+  setTimeout(() => {
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  }, 300);
+}
+document.addEventListener('focusin', (e) => {
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') scrollFieldIntoView(e.target);
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const active = document.activeElement;
+    if (active && ['INPUT','SELECT','TEXTAREA'].includes(active.tagName)) scrollFieldIntoView(active);
+  });
+}
+
 (async function init(){
   currentUser = loadIdentity();
   loadLocalCache();

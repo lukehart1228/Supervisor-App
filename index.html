@@ -48,24 +48,26 @@
   .brand{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 13px; letter-spacing: 1.5px; color: var(--ink); }
   .text-btn{ background:none; border:none; color: var(--ink-soft); font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; padding: 6px 4px; cursor:pointer; border-bottom: 1px dotted var(--ink-soft); }
   .text-btn:hover{ color: var(--warn); border-color: var(--warn); }
-  .sync-row{ display:flex; align-items:center; gap: 6px; margin-top: 10px; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ink-soft); }
   .sync-dot{ width: 7px; height:7px; border-radius:50%; background: var(--ink-soft); flex-shrink:0; }
   .sync-dot.synced{ background: #4F7A4A; }
   .sync-dot.offline{ background: var(--warn); }
-  .refresh-btn{ background:none; border:none; color: var(--ink-soft); font-size: 13px; cursor:pointer; margin-left:auto; padding:2px 4px; }
+  .refresh-btn{ background:none; border:none; color: var(--ink-soft); font-size: 13px; cursor:pointer; margin-left:auto; padding:8px 6px; min-height:36px; }
   .version-tag{ font-size: 10px; color: var(--ink-soft); font-weight: 400; letter-spacing: 0; vertical-align: middle; }
   .update-banner{ display:none; align-items:center; justify-content:space-between; gap: 10px; background: var(--accent); color: var(--white); font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-top: 8px; }
   .update-banner.show{ display:flex; }
   .update-banner button{ background: var(--white); color: var(--accent); border:none; border-radius: 6px; padding: 6px 10px; font-size: 11px; font-weight: 700; cursor:pointer; flex-shrink:0; }
-  .identity-row{ display:flex; align-items:center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--ink-soft); }
-  .identity-row b{ color: var(--ink); font-weight: 700; }
-  .identity-switch{ background:none; border:none; color: var(--ink-soft); font-size: 11px; cursor:pointer; text-decoration: underline; padding: 0; }
+  .status-row{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; gap: 6px; margin-top: 10px; font-size: 11px; letter-spacing: 0.3px; color: var(--ink-soft); }
+  .status-sep{ opacity: 0.6; }
+  .identity-switch{ background:none; border:none; color: var(--ink-soft); font-size: 11px; cursor:pointer; text-decoration: underline; padding: 6px 2px; }
+  #identityInline b{ color: var(--ink); font-weight: 700; }
   .identity-grid{ display:flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
   .identity-btn{ flex: 1 1 28%; min-width: 96px; padding: 16px 8px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--white); color: var(--ink); font-size: 14px; font-weight: 600; cursor:pointer; text-align:center; }
   .identity-btn:hover{ border-color: var(--accent); }
   .headline{ margin-top: 12px; }
   .headline-num{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 30px; line-height:1.1; }
   .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .due-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; flex-shrink:0; }
+  .chip-group-label{ flex-basis: 100%; width:100%; font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin: 4px 0 0 2px; }
   .my-tasks-card{ background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 10px 14px; }
   .my-tasks-title{ font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 6px; }
   .my-task-row{ display:flex; align-items:center; flex-wrap: nowrap; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -126,7 +128,8 @@
   .line-item:last-child{ border-bottom: none; }
   .line-label{ font-size: 14px; color: var(--ink); }
   .line-note{ font-size: 12px; color: var(--ink-soft); }
-  .del-btn{ background:none; border:none; color: var(--ink-soft); font-size: 16px; cursor:pointer; padding: 4px 2px 4px 6px; line-height:1; margin-left:auto; }
+  .del-btn{ background:none; border:none; color: var(--ink-soft); font-size: 20px; cursor:pointer; padding: 10px; line-height:1; margin-left:auto; min-width: 40px; min-height: 40px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .action-btn-inline{ width:auto; padding: 10px 16px; margin: 0; font-size: 12px; min-height: 40px; }
   .del-btn:hover{ color: var(--warn); }
   .empty-state{ text-align:center; padding: 22px 10px; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
   .modal-overlay{ position: fixed; inset: 0; background: rgba(35,42,46,0.5); display:flex; align-items:center; justify-content:center; z-index: 50; padding: 24px; }
@@ -154,13 +157,15 @@
         <span class="brand">SUPERVISOR APP <span class="version-tag" id="versionTag"></span></span>
         <button class="text-btn" id="backupBtn">Backup</button>
       </div>
-      <div class="sync-row">
+      <div class="status-row">
         <span class="sync-dot" id="syncDot"></span>
         <span id="syncText">Connecting&hellip;</span>
+        <span class="status-sep">&middot;</span>
+        <span id="identityInline"></span>
+        <button class="identity-switch" id="switchUserBtn">Not you?</button>
         <button class="refresh-btn" id="refreshBtn" title="Refresh now">&#8635; Refresh</button>
       </div>
       <div class="update-banner" id="updateBanner"></div>
-      <div class="identity-row" id="identityRow"></div>
       <div class="headline">
         <div class="headline-num mono" id="headlineNum">0</div>
         <div class="headline-sub" id="headlineSub">issues logged this month</div>
@@ -388,16 +393,16 @@ function setSyncStatus(status){
   const banner = document.getElementById('banner');
   dot.classList.remove('synced','offline');
   if (status === 'synced'){
-    dot.classList.add('synced'); text.textContent = 'Synced with shared log';
+    dot.classList.add('synced'); text.textContent = 'Synced';
     banner.classList.remove('show','banner-warn');
   } else if (status === 'syncing'){
     text.textContent = 'Syncing…';
   } else if (status === 'offline'){
-    dot.classList.add('offline'); text.textContent = "Can't reach shared log";
+    dot.classList.add('offline'); text.textContent = "Offline";
     banner.textContent = "Can't reach the shared log right now. New entries are saved on this device and will sync once you're back online.";
     banner.classList.add('show','banner-warn');
   } else if (status === 'unconfigured'){
-    text.textContent = 'Not connected yet';
+    text.textContent = 'Not connected';
     banner.textContent = "This copy isn't linked to a shared log yet. Open the file and paste your Firebase database URL where it says FIREBASE_URL (see the setup notes at the top of the code).";
     banner.classList.add('show'); banner.classList.remove('banner-warn');
   } else {
@@ -494,23 +499,41 @@ function renderChips(){
   const wrap = document.getElementById('deptNav');
   const overviewHTML = `<button class="dept-chip pinned${activeDept==='overview'?' active':''}" data-dept="overview">Overview</button>`;
   const visibleDepts = DEPARTMENTS.filter(isDeptVisible);
-  const deptHTML = visibleDepts.map(d => {
+  const chipButton = (d) => {
     const badge = chipBadge(d);
     return `<button class="dept-chip${d.key===activeDept?' active':''}" data-dept="${d.key}">${escapeHTML(d.short)}${badge>0?`<span class="chip-badge">${badge}</span>`:''}</button>`;
-  }).join('');
-  wrap.innerHTML = overviewHTML + deptHTML;
+  };
+  const deptChips = visibleDepts.filter(d => d.type === 'standard');
+  const toolChips = visibleDepts.filter(d => d.type !== 'standard');
+  let html = overviewHTML;
+  if (deptChips.length) html += `<div class="chip-group-label">Departments</div>` + deptChips.map(chipButton).join('');
+  if (toolChips.length) html += `<div class="chip-group-label">Tools</div>` + toolChips.map(chipButton).join('');
+  wrap.innerHTML = html;
   wrap.querySelectorAll('[data-dept]').forEach(btn => {
     btn.onclick = () => { activeDept = btn.getAttribute('data-dept'); render(); };
   });
 }
-function renderMasthead(){
+function headlineStats(){
   const ym = currentYM();
-  const count = issues.filter(i => i.date.startsWith(ym)).length;
+  const standardDepts = DEPARTMENTS.filter(d => d.type === 'standard');
+  const isFullAccess = FULL_ACCESS_USERS.includes(currentUser) || !PERSON_DEPTS[currentUser];
+  if (isFullAccess) {
+    const count = issues.filter(i => i.date.startsWith(ym)).length;
+    return { count, sub: `issues logged this month, across ${standardDepts.length} departments` };
+  }
+  const allowedKeys = PERSON_DEPTS[currentUser] || [];
+  const myDepts = standardDepts.filter(d => allowedKeys.includes(d.key));
+  const count = issues.filter(i => i.date.startsWith(ym) && myDepts.some(d => d.key === i.department)).length;
+  const sub = myDepts.length ? `issues logged this month in ${myDepts.map(d => d.short).join(', ')}` : 'issues logged this month';
+  return { count, sub };
+}
+function renderMasthead(){
+  const { count, sub } = headlineStats();
   document.getElementById('headlineNum').textContent = String(count);
-  document.getElementById('headlineSub').textContent = `issues logged this month, across ${DEPARTMENTS.filter(d=>d.type==='standard').length} departments`;
-  const idRow = document.getElementById('identityRow');
-  if (idRow) {
-    idRow.innerHTML = `Logged in as <b>${escapeHTML(currentUser || '')}</b> <button class="identity-switch" id="switchUserBtn">Not you?</button>`;
+  document.getElementById('headlineSub').textContent = sub;
+  const idInline = document.getElementById('identityInline');
+  if (idInline) {
+    idInline.innerHTML = `<b>${escapeHTML(currentUser || '')}</b>`;
     document.getElementById('switchUserBtn').onclick = clearIdentity;
   }
   const stripEl = document.getElementById('myTasksStrip');
@@ -620,7 +643,7 @@ function renderArrow(){
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
       <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — sent ${formatShortDate(j.sentDate)}${j.sentBy ? ` by ${escapeHTML(j.sentBy)}` : ''} (${days}d)</span></span>
-      <button class="add-btn" style="width:auto; padding:8px 14px; margin:0; font-size:11px;" data-return="${j.id}">Mark Returned</button>
+      <button class="add-btn action-btn-inline" data-return="${j.id}">Mark Returned</button>
     </div>`;
   }).join('') : `<div class="empty-state">Nothing currently at Arrow.</div>`;
 
@@ -814,20 +837,24 @@ function deptBreakdownHTML(periodIssues){
       </div>`;
   }).join('');
 }
+function dueStatusHTML(daysUntil){
+  const isDue = daysUntil <= 0;
+  const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
+  const color = isDue ? 'var(--warn)' : 'var(--ink-soft)';
+  return `<span class="due-dot" style="background:${color}"></span><span class="line-note" style="color:${color}">${statusText}</span>`;
+}
 function myTasksHTML(){
   const mine = maintenanceItems.filter(item => item.assignedTo === currentUser);
   if (!mine.length) return '';
   const sorted = mine.slice().sort((a,b) => daysBetween(todayISO(), nextDueISO(a)) - daysBetween(todayISO(), nextDueISO(b)));
   const rows = sorted.map(item => {
     const daysUntil = daysBetween(todayISO(), nextDueISO(item));
-    const isDue = daysUntil <= 0;
-    const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
     return `
       <div class="my-task-row">
         <span class="my-task-name">${escapeHTML(item.name)}</span>
         <span class="my-task-right">
-          <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${statusText}</span>
-          <button class="add-btn" style="width:auto; padding:6px 10px; margin:0; font-size:11px;" data-complete-maint-ov="${item.id}">Done</button>
+          ${dueStatusHTML(daysUntil)}
+          <button class="add-btn action-btn-inline" data-complete-maint-ov="${item.id}">Done</button>
         </span>
       </div>`;
   }).join('');
@@ -952,8 +979,6 @@ function renderMaintenance(){
   const listHTML = items.length ? items.map(item => {
     const due = nextDueISO(item);
     const daysUntil = daysBetween(todayISO(), due);
-    const isDue = daysUntil <= 0;
-    const statusText = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue by ${-daysUntil}d` : `Due in ${daysUntil}d`;
     const logs = maintenanceLogs.filter(l => l.itemId === item.id).sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt));
     const lastLog = logs[0];
     const expanded = expandedMaintId === item.id;
@@ -964,9 +989,9 @@ function renderMaintenance(){
         <div class="issue-summary">
           <button class="issue-toggle" data-toggle-maint="${item.id}">
             <span class="line-label">${escapeHTML(item.name)}</span>
-            <span class="line-note" style="color:${isDue ? 'var(--warn)' : 'var(--ink-soft)'}">${item.assignedTo ? `${escapeHTML(item.assignedTo)} · ` : ''}${statusText}</span>
+            <span class="line-note">${item.assignedTo ? `${escapeHTML(item.assignedTo)} · ` : ''}${dueStatusHTML(daysUntil)}</span>
           </button>
-          <button class="add-btn" style="width:auto; padding:8px 12px; margin:0; font-size:11px;" data-complete-maint="${item.id}">Mark Complete</button>
+          <button class="add-btn action-btn-inline" data-complete-maint="${item.id}">Mark Complete</button>
           ${canManage ? `<button class="del-btn" data-del-maint="${item.id}">&times;</button>` : ''}
         </div>
         ${expanded ? `

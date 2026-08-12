@@ -253,7 +253,7 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
-const APP_VERSION = '2';
+const APP_VERSION = '4';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];
@@ -1118,7 +1118,6 @@ function render(){
   const content = document.getElementById('content');
   if (!currentUser) {
     document.getElementById('deptNav').innerHTML = '';
-    document.getElementById('identityRow').innerHTML = '';
     content.innerHTML = renderIdentityPicker();
     attachIdentityHandlers();
     return;

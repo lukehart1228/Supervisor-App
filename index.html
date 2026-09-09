@@ -254,7 +254,7 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
-const APP_VERSION = '6';
+const APP_VERSION = '7';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const PENDING_KEY = 'shop_floor_log_pending_v1';
@@ -542,6 +542,9 @@ function chipBadge(dept){
 function renderChips(){
   const wrap = document.getElementById('deptNav');
   const overviewHTML = `<button class="dept-chip pinned${activeDept==='overview'?' active':''}" data-dept="overview">Overview</button>`;
+  const lastMon = addDaysISO(currentWeekMonday(), -7);
+  const wkCount = weeklyIssuesFor(lastMon, addDaysISO(lastMon, 4)).length;
+  const weeklyHTML = `<button class="dept-chip pinned${activeDept==='weekly'?' active':''}" data-dept="weekly">Weekly${wkCount>0?`<span class="chip-badge">${wkCount}</span>`:''}</button>`;
   const visibleDepts = DEPARTMENTS.filter(isDeptVisible);
   const chipButton = (d) => {
     const badge = chipBadge(d);
@@ -549,7 +552,7 @@ function renderChips(){
   };
   const deptChips = visibleDepts.filter(d => d.type === 'standard');
   const toolChips = visibleDepts.filter(d => d.type !== 'standard');
-  let html = overviewHTML;
+  let html = overviewHTML + weeklyHTML;
   if (deptChips.length) html += `<div class="chip-group-label">Departments</div>` + deptChips.map(chipButton).join('');
   if (toolChips.length) html += `<div class="chip-group-label">Tools</div>` + toolChips.map(chipButton).join('');
   wrap.innerHTML = html;
@@ -999,6 +1002,132 @@ function attachOverviewHandlers(){
   });
 }
 
+// ---------- WEEKLY SUMMARY (a completed Mon–Fri, for the Tuesday meeting) ----------
+function mondayOfWeek(iso){
+  const d = parseISO(iso);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day)); // Sunday belongs to the week just ending
+  return isoOfDate(d);
+}
+function currentWeekMonday(){ return mondayOfWeek(todayISO()); }
+// Left null so it always means "the last finished week" until someone pages away from it.
+let weeklyCursor = null;
+function weeklyStart(){ return weeklyCursor || addDaysISO(currentWeekMonday(), -7); }
+function visibleStandardDepts(){
+  const std = DEPARTMENTS.filter(d => d.type === 'standard');
+  if (FULL_ACCESS_USERS.includes(currentUser) || !PERSON_DEPTS[currentUser]) return std;
+  const allowed = PERSON_DEPTS[currentUser];
+  return std.filter(d => allowed.includes(d.key));
+}
+function formatDayDate(iso){ const d = parseISO(iso); return `${WEEKDAY_NAMES[d.getDay()].slice(0,3)} ${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`; }
+function weeklyIssuesFor(fromISO, toISO){
+  const keys = visibleStandardDepts().map(d => d.key);
+  return issues.filter(i => i.date >= fromISO && i.date <= toISO && keys.includes(i.department))
+    .sort((a,b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt));
+}
+function weeklySummaryText(){
+  const mon = weeklyStart(), fri = addDaysISO(mon, 4);
+  const weekIssues = weeklyIssuesFor(mon, fri);
+  const lines = [`Weekly summary — ${formatShortDate(mon)} to ${formatShortDate(fri)}`,
+                 `${weekIssues.length} issue${weekIssues.length === 1 ? '' : 's'}`, ''];
+  visibleStandardDepts().forEach(d => {
+    const rows = weekIssues.filter(i => i.department === d.key);
+    if (!rows.length) return;
+    lines.push(`${d.label.toUpperCase()} (${rows.length})`);
+    rows.forEach(i => {
+      lines.push(`  #${i.projectNumber}  ${i.category} — ${formatDayDate(i.date)}${i.loggedBy ? `, ${i.loggedBy}` : ''}`);
+      if (i.note) lines.push(`      ${i.note}`);
+    });
+    lines.push('');
+  });
+  if (!weekIssues.length) lines.push('No issues logged.');
+  return lines.join('\n');
+}
+function renderWeekly(){
+  const mon = weeklyStart(), fri = addDaysISO(mon, 4);
+  const weekIssues = weeklyIssuesFor(mon, fri);
+  const weekendIssues = weeklyIssuesFor(addDaysISO(mon, 5), addDaysISO(mon, 6));
+  const cur = currentWeekMonday();
+  const tag = mon === cur ? 'This week so far' : mon === addDaysISO(cur, -7) ? 'Last week' : '';
+  const atLatest = mon >= cur;
+
+  const deptSections = visibleStandardDepts().map(d => {
+    const rows = weekIssues.filter(i => i.department === d.key);
+    if (!rows.length) return '';
+    const items = rows.map(i => `
+      <div class="issue-row">
+        <div class="issue-summary">
+          <span class="line-label mono">#${escapeHTML(i.projectNumber)}</span>
+          <span class="line-label">${escapeHTML(i.category)}</span>
+        </div>
+        <div class="issue-detail">${formatDayDate(i.date)}${i.loggedBy ? ` · ${escapeHTML(i.loggedBy)}` : ''}${i.note ? ` · ${escapeHTML(i.note)}` : ''}</div>
+      </div>`).join('');
+    return `<div class="section-title">${escapeHTML(d.label)} — ${rows.length}</div><div class="card">${items}</div>`;
+  }).join('');
+
+  const weekendHTML = weekendIssues.length ? `
+    <div class="section-title">Logged Sat/Sun</div>
+    <div class="card">
+      <div class="muted" style="margin-bottom:6px;">Outside the Mon–Fri window, listed so nothing gets missed.</div>
+      ${weekendIssues.map(i => `
+      <div class="issue-row">
+        <div class="issue-summary">
+          <span class="line-label mono">#${escapeHTML(i.projectNumber)}</span>
+          <span class="line-label">${escapeHTML(i.category)}</span>
+        </div>
+        <div class="issue-detail">${formatDayDate(i.date)}${i.loggedBy ? ` · ${escapeHTML(i.loggedBy)}` : ''}${i.note ? ` · ${escapeHTML(i.note)}` : ''}</div>
+      </div>`).join('')}
+    </div>` : '';
+
+  const qcCount = qcEntries.filter(q => q.date >= mon && q.date <= fri).length;
+  const arrowSent = arrowJobs.filter(j => j.sentDate >= mon && j.sentDate <= fri).length;
+  const arrowBack = arrowJobs.filter(j => j.returnedDate && j.returnedDate >= mon && j.returnedDate <= fri).length;
+  const tasksDone = maintenanceLogs.filter(l => l.date >= mon && l.date <= fri).length;
+
+  return `
+    <div class="card">
+      <div class="nav-row">
+        <button class="nav-btn" id="wkPrev">&lsaquo;</button>
+        <span class="nav-title">${formatShortDate(mon)} &ndash; ${formatShortDate(fri)}</span>
+        <button class="nav-btn" id="wkNext"${atLatest ? ' disabled style="opacity:0.3;"' : ''}>&rsaquo;</button>
+      </div>
+      ${tag ? `<div class="muted" style="text-align:center;">${tag}</div>` : ''}
+      <div class="headline-num mono" style="margin-top:14px;">${weekIssues.length}</div>
+      <div class="headline-sub">issue${weekIssues.length === 1 ? '' : 's'} logged Monday to Friday</div>
+      <button class="add-btn" id="wkCopyBtn" style="margin-top:16px;">Copy for the meeting</button>
+    </div>
+    ${weekIssues.length ? deptSections : `<div class="card"><div class="empty-state">No issues logged that week.</div></div>`}
+    ${weekendHTML}
+    <div class="section-title">Also that week</div>
+    <div class="card">
+      <div class="line-item"><span class="line-label">Items QC'd</span><span class="leader"></span><span class="line-amount mono">${qcCount}</span></div>
+      <div class="line-item"><span class="line-label">Sent to Arrow</span><span class="leader"></span><span class="line-amount mono">${arrowSent}</span></div>
+      <div class="line-item"><span class="line-label">Back from Arrow</span><span class="leader"></span><span class="line-amount mono">${arrowBack}</span></div>
+      <div class="line-item"><span class="line-label">Routine tasks completed</span><span class="leader"></span><span class="line-amount mono">${tasksDone}</span></div>
+    </div>
+  `;
+}
+function attachWeeklyHandlers(){
+  document.getElementById('wkPrev').onclick = () => { weeklyCursor = addDaysISO(weeklyStart(), -7); render(); };
+  const next = document.getElementById('wkNext');
+  if (next) next.onclick = () => {
+    if (weeklyStart() >= currentWeekMonday()) return;
+    weeklyCursor = addDaysISO(weeklyStart(), 7); render();
+  };
+  document.getElementById('wkCopyBtn').onclick = async () => {
+    const text = weeklySummaryText();
+    try { await navigator.clipboard.writeText(text); showToast('Summary copied'); }
+    catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); showToast('Summary copied'); }
+      catch (e2) { showToast("Couldn't copy on this device"); }
+      document.body.removeChild(ta);
+    }
+  };
+}
+
 // ---------- MAINTENANCE (recurring schedule with completion log) ----------
 function markMaintenanceComplete(id){
   const item = maintenanceItems.find(m => m.id === id);
@@ -1167,13 +1296,14 @@ function render(){
     attachIdentityHandlers();
     return;
   }
-  if (activeDept !== 'overview') {
+  if (activeDept !== 'overview' && activeDept !== 'weekly') {
     const currentDept = DEPARTMENTS.find(d => d.key === activeDept);
     if (!currentDept || !isDeptVisible(currentDept)) { activeDept = firstVisibleDept(); }
   }
   renderChips();
   renderMasthead();
   if (activeDept === 'overview') { content.innerHTML = renderOverview(); attachOverviewHandlers(); return; }
+  if (activeDept === 'weekly') { content.innerHTML = renderWeekly(); attachWeeklyHandlers(); return; }
   const dept = DEPARTMENTS.find(d => d.key === activeDept);
   if (dept.type === 'standard') { content.innerHTML = renderStandardDept(dept); attachStandardHandlers(dept); }
   else if (dept.type === 'arrow') { content.innerHTML = renderArrow(); attachArrowHandlers(); }

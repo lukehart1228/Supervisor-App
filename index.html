@@ -66,6 +66,7 @@
   .headline{ margin-top: 12px; }
   .headline-num{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size: 30px; line-height:1.1; }
   .headline-sub{ font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .done-today{ font-size: 12px; font-weight: 600; color: #4F7A4A; white-space: nowrap; flex-shrink:0; }
   .due-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; flex-shrink:0; }
   .chip-group-label{ flex-basis: 100%; width:100%; font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); margin: 4px 0 0 2px; }
   .my-tasks-card{ background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 10px 14px; }
@@ -253,9 +254,11 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
-const APP_VERSION = '4';
+const APP_VERSION = '6';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
+const PENDING_KEY = 'shop_floor_log_pending_v1';
+let pendingOps = [];
 const TEAM = ['Luke H','Mike B','Jim W','Eric B','David D','Donnie E','KP','Shawn K','Willie J'];
 const POLL_MS = 15000;
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -270,18 +273,21 @@ let expandedMaintId = null;
 let activeDept = DEPARTMENTS[0].key;
 let currentUser = null;
 let qcSearch = '';
-const today = new Date();
 let overviewPeriod = 'month';
-let overviewMonthCursor = { y: today.getFullYear(), m: today.getMonth() };
-let overviewYearCursor = today.getFullYear();
+let overviewMonthCursor = { y: new Date().getFullYear(), m: new Date().getMonth() };
+let overviewYearCursor = new Date().getFullYear();
 let expandedDept = null;
 let expandedIssueId = null;
 
+// Always read the real clock. This used to be captured once when the page loaded,
+// which meant a phone left on the app for days kept reporting the day it was opened —
+// and stamped completions with that old date.
 function todayISO(){
-  const y = today.getFullYear(), m = String(today.getMonth()+1).padStart(2,'0'), d = String(today.getDate()).padStart(2,'0');
+  const now = new Date();
+  const y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0'), d = String(now.getDate()).padStart(2,'0');
   return `${y}-${m}-${d}`;
 }
-function currentYM(){ return `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`; }
+function currentYM(){ const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; }
 function parseISO(iso){ const [y,m,d] = iso.split('-').map(Number); return new Date(y, m-1, d); }
 function formatShortDate(iso){ const d = parseISO(iso); return `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`; }
 function daysBetween(startISO, endISO){ return Math.round((parseISO(endISO) - parseISO(startISO)) / 86400000); }
@@ -332,34 +338,40 @@ function scheduleLabel(item){
   if (item.scheduleType === 'monthly') return `${OCCURRENCE_LABELS[item.monthlyOccurrence] || '1st'} ${wd} of every month`;
   return item.weekInterval === 1 ? `Every ${wd}` : `Every ${item.weekInterval} weeks (${wd})`;
 }
-function nextDueISO(item){
-  const logs = maintenanceLogs.filter(l => l.itemId === item.id);
-  const lastDate = logs.length ? logs.reduce((max, l) => (l.date > max ? l.date : max), logs[0].date) : null;
-  const searchFrom = lastDate ? addDaysISO(lastDate, 1) : item.startDate;
-
-  // legacy fallback for any item created before weekday-based scheduling existed
-  if (!item.scheduleType) return lastDate ? addDaysISO(lastDate, item.intervalDays) : item.startDate;
-
-  if (item.scheduleType === 'weekly') {
-    const anchor = computeAnchor(item);
-    let d = parseISO(searchFrom < anchor ? anchor : searchFrom);
-    while (true) {
-      if (d.getDay() === item.weekday) {
-        const weeksSinceAnchor = Math.round(daysBetween(anchor, isoOfDate(d)) / 7);
-        if (weeksSinceAnchor >= 0 && weeksSinceAnchor % item.weekInterval === 0) return isoOfDate(d);
-      }
-      d.setDate(d.getDate()+1);
-    }
-  }
-  // monthly
-  let d = parseISO(searchFrom);
-  let year = d.getFullYear(), month = d.getMonth();
+// The occurrence that follows a given one — anchor + N weeks, or the same slot next month.
+function occurrenceAfter(item, occISO){
+  if (item.scheduleType === 'weekly') return addDaysISO(occISO, 7 * (item.weekInterval || 1));
+  const d = parseISO(occISO);
+  let year = d.getFullYear(), month = d.getMonth() + 1;
+  if (month > 11) { month = 0; year++; }
   for (let i = 0; i < 24; i++) {
     const occ = nthWeekdayOfMonth(year, month, item.weekday, item.monthlyOccurrence);
-    if (occ) { const occISO = isoOfDate(occ); if (occISO >= searchFrom) return occISO; }
+    if (occ) return isoOfDate(occ);
     month++; if (month > 11) { month = 0; year++; }
   }
-  return searchFrom;
+  return addDaysISO(occISO, 28);
+}
+// Due dates sit on fixed calendar slots (e.g. the 3rd Thursday), not on "last done + N".
+// Each completion clears one slot: done early still clears this month's, done late clears
+// the one that had already come around, and slots passed with no completion are missed.
+function nextDueISO(item){
+  const done = maintenanceLogs.filter(l => l.itemId === item.id).map(l => l.date).sort();
+
+  // legacy fallback for any item created before weekday-based scheduling existed
+  if (!item.scheduleType) {
+    const lastDate = done.length ? done[done.length-1] : null;
+    return lastDate ? addDaysISO(lastDate, item.intervalDays || 7) : item.startDate;
+  }
+
+  let due = computeAnchor(item);
+  let cleared = null;
+  for (const c of done) {
+    if (cleared && c <= cleared) continue; // a second tap inside the same cycle
+    let next = occurrenceAfter(item, due);
+    while (c >= next) { cleared = due; due = next; next = occurrenceAfter(item, due); }
+    cleared = due; due = next;
+  }
+  return due;
 }
 function escapeHTML(s){ const div = document.createElement('div'); div.textContent = s == null ? '' : s; return div.innerHTML; }
 function showToast(msg){
@@ -388,6 +400,7 @@ function clearIdentity(){ try { localStorage.removeItem(IDENTITY_KEY); } catch(e
 
 // ---------- cloud sync (Firebase Realtime Database REST) ----------
 function setSyncStatus(status){
+  if (status === 'offline' && pendingOps.length) status = 'pending';
   const dot = document.getElementById('syncDot');
   const text = document.getElementById('syncText');
   const banner = document.getElementById('banner');
@@ -400,6 +413,11 @@ function setSyncStatus(status){
   } else if (status === 'offline'){
     dot.classList.add('offline'); text.textContent = "Offline";
     banner.textContent = "Can't reach the shared log right now. New entries are saved on this device and will sync once you're back online.";
+    banner.classList.add('show','banner-warn');
+  } else if (status === 'pending'){
+    dot.classList.add('offline');
+    text.textContent = `${pendingOps.length} change${pendingOps.length===1?'':'s'} waiting`;
+    banner.textContent = "Some changes haven't reached the shared log yet. They're saved on this device and will send as soon as it reconnects — don't clear the app.";
     banner.classList.add('show','banner-warn');
   } else if (status === 'unconfigured'){
     text.textContent = 'Not connected';
@@ -414,9 +432,28 @@ async function remoteFetchPath(path){
   if (!res.ok) throw new Error('fetch failed');
   return await res.json();
 }
-async function remotePatchPath(path, body){
+async function rawPatch(path, body){
   const res = await fetch(`${FIREBASE_URL}/${path}.json`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error('patch failed');
+}
+// Writes that don't reach Firebase are held here (and on disk) until they do.
+// Without this, a save that failed was simply lost the next time the app polled.
+function loadPending(){ try { pendingOps = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch(e){ pendingOps = []; } }
+function savePending(){ try { localStorage.setItem(PENDING_KEY, JSON.stringify(pendingOps)); } catch(e){} }
+async function flushPending(){
+  if (!pendingOps.length) return true;
+  if (!isConfigured()) return false;
+  while (pendingOps.length){
+    try { await rawPatch(pendingOps[0].path, pendingOps[0].body); }
+    catch (e) { return false; }
+    pendingOps.shift(); savePending();
+  }
+  return true;
+}
+async function remotePatchPath(path, body){
+  pendingOps.push({ path, body }); savePending();
+  const delivered = await flushPending();
+  if (!delivered) throw new Error('held for retry');
 }
 async function remoteReplacePath(path, body){
   const res = await fetch(`${FIREBASE_URL}/${path}.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -426,10 +463,17 @@ async function syncPull(showFailToast){
   if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
   try {
     setSyncStatus('syncing');
+    // Send anything still waiting before reading, so a pull can't overwrite it.
+    const delivered = await flushPending();
     const [i, a, q, mi, ml] = await Promise.all([
       remoteFetchPath('issues'), remoteFetchPath('arrowJobs'), remoteFetchPath('qcEntries'),
       remoteFetchPath('maintenanceItems'), remoteFetchPath('maintenanceLogs')
     ]);
+    if (!delivered || pendingOps.length) {
+      setSyncStatus('pending');
+      if (showFailToast) showToast(`${pendingOps.length} change${pendingOps.length===1?'':'s'} still waiting to send`);
+      return;
+    }
     const newIssues = objToArr(i), newArrow = objToArr(a), newQc = objToArr(q);
     const newMaintItems = objToArr(mi), newMaintLogs = objToArr(ml);
     const before = {issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs};
@@ -849,12 +893,13 @@ function myTasksHTML(){
   const sorted = mine.slice().sort((a,b) => daysBetween(todayISO(), nextDueISO(a)) - daysBetween(todayISO(), nextDueISO(b)));
   const rows = sorted.map(item => {
     const daysUntil = daysBetween(todayISO(), nextDueISO(item));
+    const doneToday = maintenanceLogs.some(l => l.itemId === item.id && l.date === todayISO());
     return `
       <div class="my-task-row">
         <span class="my-task-name">${escapeHTML(item.name)}</span>
         <span class="my-task-right">
-          ${dueStatusHTML(daysUntil)}
-          <button class="add-btn action-btn-inline" data-complete-maint-ov="${item.id}">Done</button>
+          ${doneToday ? `<span class="done-today">&check; Done &middot; next ${formatShortDate(nextDueISO(item))}</span>` : `${dueStatusHTML(daysUntil)}
+          <button class="add-btn action-btn-inline" data-complete-maint-ov="${item.id}">Done</button>`}
         </span>
       </div>`;
   }).join('');
@@ -991,12 +1036,12 @@ function renderMaintenance(){
             <span class="line-label">${escapeHTML(item.name)}</span>
             <span class="line-note">${item.assignedTo ? `${escapeHTML(item.assignedTo)} · ` : ''}${dueStatusHTML(daysUntil)}</span>
           </button>
-          <button class="add-btn action-btn-inline" data-complete-maint="${item.id}">Mark Complete</button>
+          ${logs.some(l => l.date === todayISO()) ? `<span class="done-today">&check; Done today</span>` : `<button class="add-btn action-btn-inline" data-complete-maint="${item.id}">Mark complete</button>`}
           ${canManage ? `<button class="del-btn" data-del-maint="${item.id}">&times;</button>` : ''}
         </div>
         ${expanded ? `
           <div class="issue-detail">
-            ${scheduleLabel(item)} · Last done: ${lastLog ? `${formatShortDate(lastLog.date)} by ${escapeHTML(lastLog.completedBy || '—')}` : 'never'}
+            ${scheduleLabel(item)} · Next due ${formatShortDate(due)} · Last done: ${lastLog ? `${formatShortDate(lastLog.date)} by ${escapeHTML(lastLog.completedBy || '—')}` : 'never'}
           </div>
           <div class="ov-dept-detail">${historyRows}</div>
         ` : ''}
@@ -1190,6 +1235,13 @@ async function checkForUpdate(){
 }
 document.getElementById('refreshBtn').onclick = () => { syncPull(true); checkForUpdate(); };
 
+// The app often stays open for days on a phone. Redraw when the date turns over
+// so due dates and "this month" counts don't sit on yesterday's numbers.
+let lastRenderedDay = todayISO();
+function checkDayRollover(){
+  if (todayISO() !== lastRenderedDay) { lastRenderedDay = todayISO(); render(); }
+}
+
 function exportBackup(){
   const payload = { exportedAt: new Date().toISOString(), issues, arrowJobs, qcEntries, maintenanceItems, maintenanceLogs };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1224,12 +1276,13 @@ if (window.visualViewport) {
   document.getElementById('versionTag').textContent = 'v' + APP_VERSION;
   currentUser = loadIdentity();
   loadLocalCache();
+  loadPending();
   render();
   await syncPull(false);
   checkForUpdate();
   if (isConfigured()) {
-    setInterval(() => syncPull(false), POLL_MS);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPull(false); });
+    setInterval(() => { checkDayRollover(); syncPull(false); }, POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkDayRollover(); syncPull(false); } });
   }
 })();
 </script>

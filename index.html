@@ -254,7 +254,7 @@ function firstVisibleDept(){
   const d = DEPARTMENTS.find(isDeptVisible);
   return d ? d.key : 'overview';
 }
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 const STORAGE_KEY = 'shop_floor_log_cache_v1';
 const IDENTITY_KEY = 'shop_floor_log_identity_v1';
 const PENDING_KEY = 'shop_floor_log_pending_v1';
@@ -678,18 +678,54 @@ function attachStandardHandlers(dept){
 }
 
 // ---------- ARROW (in/out tracking) ----------
+// Rolls every partial shipment up by project # so we know how much of an order
+// has gone out so far and how much is still to send.
+function arrowOrderProgress(){
+  const byProject = {};
+  arrowJobs.filter(j => j.orderType === 'partial' && j.jobNumber).forEach(j => {
+    const key = String(j.jobNumber).trim();
+    if (!key) return;
+    (byProject[key] = byProject[key] || []).push(j);
+  });
+  return Object.keys(byProject).map(key => {
+    const shipments = byProject[key].slice().sort((a,b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const withTotal = shipments.find(s => Number(s.totalItems) > 0);
+    const totalItems = withTotal ? Number(withTotal.totalItems) : 0;
+    const sent = shipments.reduce((sum, j) => sum + (Number(j.qty) || 0), 0);
+    const described = shipments.find(s => s.description);
+    return {
+      jobNumber: key,
+      shipments,
+      totalItems,
+      sent,
+      remaining: Math.max(0, totalItems - sent),
+      description: described ? described.description : '',
+      complete: totalItems > 0 && sent >= totalItems
+    };
+  }).sort((a,b) => String(a.jobNumber).localeCompare(String(b.jobNumber), undefined, { numeric: true }));
+}
+function openPartialOrders(){ return arrowOrderProgress().filter(o => !o.complete); }
+function shipmentNote(j){
+  const bits = [];
+  const qty = Number(j.qty);
+  if (qty > 0) bits.push(`${qty} base${qty === 1 ? '' : 's'}`);
+  if (j.orderType === 'partial') bits.push('partial');
+  else if (j.orderType === 'full') bits.push('full order');
+  return bits.length ? ` · ${bits.join(' · ')}` : '';
+}
 function renderArrow(){
   const active = arrowJobs.filter(j => !j.returnedDate)
     .sort((a,b) => (a.sentDate < b.sentDate ? 1 : a.sentDate > b.sentDate ? -1 : b.createdAt - a.createdAt));
   const returned = arrowJobs.filter(j => j.returnedDate)
     .sort((a,b) => (a.returnedDate < b.returnedDate ? 1 : -1));
+  const openPartials = openPartialOrders();
 
   const activeHTML = active.length ? active.map(j => {
     const days = daysBetween(j.sentDate, todayISO());
     return `
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
-      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — sent ${formatShortDate(j.sentDate)}${j.sentBy ? ` by ${escapeHTML(j.sentBy)}` : ''} (${days}d)</span></span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note">${shipmentNote(j)} — sent ${formatShortDate(j.sentDate)}${j.sentBy ? ` by ${escapeHTML(j.sentBy)}` : ''} (${days}d)</span></span>
       <button class="add-btn action-btn-inline" data-return="${j.id}">Mark Returned</button>
     </div>`;
   }).join('') : `<div class="empty-state">Nothing currently at Arrow.</div>`;
@@ -699,40 +735,124 @@ function renderArrow(){
     return `
     <div class="line-item">
       <span class="line-label mono">#${escapeHTML(j.jobNumber)}</span>
-      <span class="line-label">${escapeHTML(j.description)}<span class="line-note"> — ${formatShortDate(j.sentDate)} to ${formatShortDate(j.returnedDate)} (${days}d)${j.returnedBy ? ` · returned by ${escapeHTML(j.returnedBy)}` : ''}</span></span>
+      <span class="line-label">${escapeHTML(j.description)}<span class="line-note">${shipmentNote(j)} — ${formatShortDate(j.sentDate)} to ${formatShortDate(j.returnedDate)} (${days}d)${j.returnedBy ? ` · returned by ${escapeHTML(j.returnedBy)}` : ''}</span></span>
       <button class="del-btn" data-del-arrow="${j.id}">&times;</button>
     </div>`;
   }).join('') : `<div class="empty-state">No returned jobs yet.</div>`;
 
+  const pickerHTML = openPartials.length ? `
+      <div id="arrowPartialPicker" style="display:none;">
+        <label class="field-label" for="arrowExistingOrder" style="margin-top:14px;">Which order?</label>
+        <select id="arrowExistingOrder">
+          <option value="__new">First shipment for a new order</option>
+          ${openPartials.map(o => `<option value="${escapeHTML(o.jobNumber)}">#${escapeHTML(o.jobNumber)} — ${o.sent} of ${o.totalItems} sent${o.description ? ` (${escapeHTML(o.description)})` : ''}</option>`).join('')}
+        </select>
+      </div>` : '';
+
+  const partialProgressHTML = openPartials.length ? `
+    <div class="section-title">Partial orders in progress</div>
+    <div class="card">
+      ${openPartials.map(o => {
+        const pct = o.totalItems ? Math.max(4, Math.min(100, Math.round(o.sent / o.totalItems * 100))) : 0;
+        return `
+        <div class="ov-dept-row">
+          <div class="bar-row-top"><span class="mono">#${escapeHTML(o.jobNumber)}</span><span class="mono">${o.sent} / ${o.totalItems}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:var(--accent)"></div></div>
+          <div class="ov-top-issue">${o.description ? escapeHTML(o.description) + ' · ' : ''}${o.remaining} still to send · ${o.shipments.length} shipment${o.shipments.length === 1 ? '' : 's'} so far</div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
   return `
     <div class="card">
       <div class="dept-title">ARROW — Powdercoating Tracking</div>
-      <label class="field-label" for="arrowJobNum">Project #</label>
-      <input type="text" id="arrowJobNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 432">
+      <label class="field-label" for="arrowOrderType">Sending</label>
+      <select id="arrowOrderType">
+        <option value="full">Full order — all of it at once</option>
+        <option value="partial">Partial — some of an order</option>
+      </select>
+      ${pickerHTML}
+      <div id="arrowProjectField">
+        <label class="field-label" for="arrowJobNum" style="margin-top:14px;">Project #</label>
+        <input type="text" id="arrowJobNum" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 432">
+      </div>
+      <div id="arrowTotalField" style="display:none;">
+        <label class="field-label" for="arrowTotalItems" style="margin-top:14px;">Total items in this order</label>
+        <input type="text" id="arrowTotalItems" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 30">
+      </div>
+      <div id="arrowExistingSummary"></div>
       <label class="field-label" for="arrowDesc">Description</label>
       <input type="text" id="arrowDesc" placeholder="e.g. cabinet hinges, black">
+      <label class="field-label" for="arrowQty">Bases going out now<span id="arrowQtyHint" style="text-transform:none;letter-spacing:0;"> (optional)</span></label>
+      <input type="text" id="arrowQty" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 10">
       <label class="field-label" for="arrowSentDate">Date sent</label>
       <input type="date" id="arrowSentDate" value="${todayISO()}">
       <button class="add-btn" id="sendArrowBtn">+ Send to Arrow</button>
     </div>
+    ${partialProgressHTML}
     <div class="section-title">Currently at Arrow</div>
     <div class="card">${activeHTML}</div>
     <div class="section-title">Returned history</div>
     <div class="card">${returnedHTML}</div>
   `;
 }
+// Shows/hides the partial fields without a full re-render, so nothing typed gets wiped.
+function selectedPartialOrder(){
+  const typeEl = document.getElementById('arrowOrderType');
+  const sel = document.getElementById('arrowExistingOrder');
+  if (!typeEl || typeEl.value !== 'partial' || !sel || sel.value === '__new') return null;
+  return openPartialOrders().find(o => o.jobNumber === sel.value) || null;
+}
+function updateArrowFormMode(){
+  const typeEl = document.getElementById('arrowOrderType');
+  if (!typeEl) return;
+  const isPartial = typeEl.value === 'partial';
+  const picker = document.getElementById('arrowPartialPicker');
+  if (picker) picker.style.display = isPartial ? 'block' : 'none';
+  const existing = selectedPartialOrder();
+  document.getElementById('arrowProjectField').style.display = existing ? 'none' : 'block';
+  document.getElementById('arrowTotalField').style.display = (isPartial && !existing) ? 'block' : 'none';
+  document.getElementById('arrowExistingSummary').innerHTML = existing
+    ? `<div class="muted" style="margin-top:14px;">Project #${escapeHTML(existing.jobNumber)}${existing.description ? ` — ${escapeHTML(existing.description)}` : ''}<br>${existing.sent} of ${existing.totalItems} already sent · ${existing.remaining} still to go</div>`
+    : '';
+  const desc = document.getElementById('arrowDesc');
+  desc.placeholder = existing && existing.description ? existing.description : 'e.g. cabinet hinges, black';
+  document.getElementById('arrowQtyHint').textContent = isPartial ? '' : ' (optional)';
+}
 function attachArrowHandlers(){
+  const typeEl = document.getElementById('arrowOrderType');
+  if (typeEl) typeEl.onchange = updateArrowFormMode;
+  const existingSel = document.getElementById('arrowExistingOrder');
+  if (existingSel) existingSel.onchange = updateArrowFormMode;
+  updateArrowFormMode();
+
   document.getElementById('sendArrowBtn').onclick = async () => {
-    const jobNumber = document.getElementById('arrowJobNum').value.trim();
-    const description = document.getElementById('arrowDesc').value.trim();
+    const orderType = document.getElementById('arrowOrderType').value;
+    const isPartial = orderType === 'partial';
+    const existing = selectedPartialOrder();
+    const jobNumEl = document.getElementById('arrowJobNum');
+    const jobNumber = existing ? existing.jobNumber : jobNumEl.value.trim();
+    const typedDesc = document.getElementById('arrowDesc').value.trim();
+    const description = typedDesc || (existing ? existing.description : '');
     const sentDate = document.getElementById('arrowSentDate').value || todayISO();
-    if (!jobNumber) { showToast('Enter a project number'); return; }
-    const entry = { id: 'a' + Date.now() + Math.random().toString(36).slice(2,7), jobNumber, description, sentDate, returnedDate: null, sentBy: currentUser, returnedBy: null, createdAt: Date.now() };
-    arrowJobs.push(entry); cacheLocal(); render(); showToast('Sent to Arrow');
+    const qty = parseInt(document.getElementById('arrowQty').value.trim(), 10) || 0;
+    let totalItems = 0;
+    if (isPartial) {
+      totalItems = existing ? existing.totalItems : (parseInt(document.getElementById('arrowTotalItems').value.trim(), 10) || 0);
+    }
+
+    if (!jobNumber) { jobNumEl.style.borderColor = 'var(--warn)'; showToast('Enter a project number'); return; }
+    if (isPartial && !totalItems) { showToast('Enter the total number of items in this order'); return; }
+    if (isPartial && qty < 1) { showToast('Enter how many bases are going out'); return; }
+
+    const entry = { id: 'a' + Date.now() + Math.random().toString(36).slice(2,7), jobNumber, description, sentDate, returnedDate: null, sentBy: currentUser, returnedBy: null, orderType, qty: qty > 0 ? qty : null, totalItems: totalItems > 0 ? totalItems : null, createdAt: Date.now() };
+    const runningTotal = (existing ? existing.sent : 0) + qty;
+    arrowJobs.push(entry); cacheLocal(); render();
+    showToast(isPartial ? `Sent to Arrow — ${runningTotal} of ${totalItems} for #${jobNumber}` : 'Sent to Arrow');
     if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
     try {
       setSyncStatus('syncing');
-      await remotePatchPath('arrowJobs', { [entry.id]: { jobNumber, description, sentDate, returnedDate: null, sentBy: entry.sentBy, returnedBy: null, createdAt: entry.createdAt } });
+      await remotePatchPath('arrowJobs', { [entry.id]: { jobNumber, description, sentDate, returnedDate: null, sentBy: entry.sentBy, returnedBy: null, orderType: entry.orderType, qty: entry.qty, totalItems: entry.totalItems, createdAt: entry.createdAt } });
       setSyncStatus('synced');
     } catch (e) { setSyncStatus('offline'); showToast("Saved here — will sync once you're back online"); }
   };
@@ -751,7 +871,7 @@ function attachArrowHandlers(){
           cacheLocal(); render(); showToast('Marked returned');
           if (!isConfigured()) { setSyncStatus('unconfigured'); return; }
           try {
-            await remotePatchPath('arrowJobs', { [id]: { jobNumber: job.jobNumber, description: job.description, sentDate: job.sentDate, returnedDate: job.returnedDate, sentBy: job.sentBy, returnedBy: job.returnedBy, createdAt: job.createdAt } });
+            await remotePatchPath('arrowJobs', { [id]: { jobNumber: job.jobNumber, description: job.description, sentDate: job.sentDate, returnedDate: job.returnedDate, sentBy: job.sentBy, returnedBy: job.returnedBy, orderType: job.orderType || null, qty: job.qty || null, totalItems: job.totalItems || null, createdAt: job.createdAt } });
             setSyncStatus('synced');
           } catch (e) { setSyncStatus('offline'); showToast("Updated here — will sync once you're back online"); }
         }
